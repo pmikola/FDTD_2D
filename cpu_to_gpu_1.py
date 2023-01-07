@@ -35,7 +35,7 @@ def data_type(data, flag):
     else:
         return np.float64(data)
 
-
+#
 flag = 1
 data_type1 = np.float32
 
@@ -434,13 +434,13 @@ az.grid(True)
 e = time.time()
 print("Time brutto : " + str((e - s)) + "[s]")
 print("Time netto SUM : " + str(nett_time_sum) + "[s]")
-file_name = "2d_fdtd_Si_Cylinder_2"
+file_name = "2d_fdtd_Si_Cylinder_Measure"
 # file_name = "./" + file_name + '.gif'
 file_name = "./" + file_name + '.gif'
 ani = animation.ArtistAnimation(fig, ims, interval=30, blit=True)
 # ani.save(file_name, writer='pillow', fps=30, dpi=100)
 # ani.save(file_name + '.mp4', fps = 30, extra_args = ['-vcodec', 'libx264'])
-# ani.save(file_name, writer="imagemagick", fps=30)
+ani.save(file_name, writer="imagemagick", fps=30)
 print("OK")
 plt.show()
 
