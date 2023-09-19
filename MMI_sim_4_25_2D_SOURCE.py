@@ -60,7 +60,7 @@ n_sigma = 1.  # cc.sigmaSiO2
 epsilon = data_type(n_index, flag)
 sigma = data_type(n_sigma, flag)
 epsilon_medium = data_type(1.003, flag)
-sigma_medium = data_type(0., flag) # TODO 0 or 1?
+sigma_medium = data_type(1., flag)
 
 wavelength = 4.25e-6  # cc.c0 / (n_index * (min(freq)))
 
@@ -75,7 +75,7 @@ dt = ddx / (2 * cc.c0)
 #   CFL stability condition- Lax Equivalence Theorem
 # dt = 1 / (vm * M.sqrt(1 / (ddx ** 2) + 1 / (ddx ** 2)))  # Time step
 
-# dt = M.sqrt(epsilon * sigma)  # same as 2*cc.c0
+#dt = M.sqrt(epsilon * sigma)  # same as 2*cc.c0
 
 z_max = data_type(0, 1)
 epsz = data_type(8.854E-12, flag)
@@ -88,7 +88,7 @@ ia = 5  # total scattered field boundaries
 ib = IE - ia - 1
 ja = ia
 jb = JE - ja - 1
-nsteps = 3500
+nsteps = 2500
 T = 0
 zero_range = ja + 2
 medium_eps = 1. / (epsilon_medium + sigma_medium * dt / epsz)
@@ -176,7 +176,7 @@ ax = fig.add_subplot(grid[:, :5])
 ay = fig.add_subplot(grid[:, 5:15])
 az = fig.add_subplot(grid[:, 15:])
 # Cyclic Number of image snapping
-frame_interval = 8
+frame_interval = 32
 ims = []
 
 wstart = 10
@@ -199,7 +199,7 @@ cr.paint()
 # cr.rectangle(210, 50, 50, 5)
 # cr.rectangle(270, 50, 50, 5)
 # INPUT
-cr.rectangle(150, 100, 30, 100)
+cr.rectangle(35, 0, 30, 100)
 # cr.rectangle(40, 0, 20, 20)
 
 # MMI
@@ -278,6 +278,14 @@ def Ez_inc_CU(ez_inc, hx_inc):
 
 
 @jit(nopython=True, parallel=True)
+def Hy_inc_CU(hy, ez_inc):
+    for j in prange(1, JE):
+        for i in prange(0, IE):
+            hy[i, j] = hy[i, j] - 0.5 * (ez_inc[i, j] - ez_inc[i - 1, j])
+    return hy
+
+
+@jit(nopython=True, parallel=True)
 def Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3):
     for j in prange(1, JE):
         for i in range(1, IE):
@@ -326,7 +334,6 @@ def Hx_CU(ez, hx, ihx, fj3, fj2, fi1):
 
 @jit(nopython=True, parallel=True)
 def Hx_inc_val_CU(hx, ez_inc):
-    # for j in prange(0, JE):
     for i in prange(ia, ib + 1):
         hx[i, ja - 1] = hx[i, ja - 1] + 0.5 * ez_inc[i, ja]
         hx[i, jb] = hx[i, jb] - 0.5 * ez_inc[i, jb]
@@ -342,17 +349,6 @@ def Hy_CU(hy, ez, ihy, fi3, fi2, fi1):
             hy[i, j] = fi3[i] * hy[i, j] - fi2[i] * \
                        (.5 * curl_e + fi1[j] * ihy[i, j])
     return ihy, hy
-
-
-@jit(nopython=True, parallel=True)
-def Hy_inc_CU(hy, ez_inc):
-    # for j in prange(1, JE):
-    for j in prange(ja, jb + 1):
-        # for i in prange(0, IE):
-        # hy[i, j] = hy[i, j] - 0.5 * (ez_inc[i, j] - ez_inc[i - 1, j])
-        hy[ia - 1][j] = hy[ia - 1][j] - .5 * ez_inc[ia - 1, j]
-        hy[ib][j] = hy[ib][j] + .5 * ez_inc[ib, j]
-    return hy
 
 
 @jit(nopython=True, parallel=True)
@@ -372,39 +368,21 @@ for n in range(1, nsteps):
 
     ez_inc = Ez_inc_CU(ez_inc, hx_inc)
     ez_inc[0:zero_range, :] = ez_inc[-zero_range:, :] = ez_inc[:, 0:zero_range] = ez_inc[:, -zero_range:] = 0.0
-    # ez_inc[:,0] = ez_inc_low_m2
-    # ez_inc_low_m2 = ez_inc_low_m1
-    # ez_inc_low_m1 = ez_inc[:,1]
-    # ez_inc[:,JE - 1] = ez_inc_high_m2
-    # ez_inc_high_m2 = ez_inc_high_m1
-    # ez_inc_high_m1 = ez_inc[:,JE - 2]
-    dz = Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3)
-    #dz[0:zero_range, :] = dz[-zero_range:, :] = dz[:, 0:zero_range] = dz[:, -zero_range:] = 0.0
 
+    dz = Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3)
     if T < 500:
         source = data_type(M.sin(2 * freq[0] * dt * T), flag)  # plane wave
-        ez_inc[130:170, zero_range] = source
+        ez_inc[200:300, zero_range] = source
     else:
         pass
 
     dz = Dz_inc_val_CU(dz, hx_inc)
-    #dz[0:zero_range, :] = dz[-zero_range:, :] = dz[:, 0:zero_range] = dz[:, -zero_range:] = 0.0
-
     ez, iz = Ez_Dz_CU(ez, ga, gb, dz, iz)
-    #ez[0:zero_range, :] = ez[-zero_range:, :] = ez[:, 0:zero_range] = ez[:, -zero_range:] = 0.0
-
     hx_inc = Hx_inc_CU(hx_inc, ez_inc)
-    #hx_inc[0:zero_range, :] = hx_inc[-zero_range:, :] = hx_inc[:, 0:zero_range] = hx_inc[:, -zero_range:] = 0.0
-
     ihx, hx = Hx_CU(ez, hx, ihx, fj3, fj2, fi1)
-    #hx[0:zero_range, :] = hx[-zero_range:, :] = hx[:, 0:zero_range] = hx[:, -zero_range:] = 0.0
-
     hx = Hx_inc_val_CU(hx, ez_inc)
     ihy, hy = Hy_CU(hy, ez, ihy, fi3, fi2, fi1)
-    #hy[0:zero_range, :] = hy[-zero_range:, :] = hy[:, 0:zero_range] = hy[:, -zero_range:] = 0.0
     hy = Hy_inc_CU(hy, ez_inc)
-    #hy[0:zero_range, :] = hy[-zero_range:, :] = hy[:, 0:zero_range] = hy[:, -zero_range:] = 0.0
-
     Pz = Power_Calc(Pz, ez, hy, hx)
 
     netend = time.time()
