@@ -60,7 +60,7 @@ n_sigma = 1.  # cc.sigmaSiO2
 epsilon = data_type(n_index, flag)
 sigma = data_type(n_sigma, flag)
 epsilon_medium = data_type(1.003, flag)
-sigma_medium = data_type(0., flag)
+sigma_medium = data_type(1., flag)
 
 wavelength = 4.25e-6  # cc.c0 / (n_index * (min(freq)))
 
@@ -71,11 +71,11 @@ dx = 0.1  # each grid step is dx [um]
 ddx = data_type(wavelength * dx, flag)  # Cells Size
 # dt = 1 / (cc.c0 * np.sqrt((1 / dx)**2 + (1 / dx)**2))
 # dt = data_type((ddx / cc.c0) * M.sqrt(2), flag)  # Time step
-
+dt = ddx / (2 * cc.c0)
 #   CFL stability condition- Lax Equivalence Theorem
-dt = 1 / (vm * M.sqrt(1 / (ddx ** 2) + 1 / (ddx ** 2)))  # Time step
+# dt = 1 / (vm * M.sqrt(1 / (ddx ** 2) + 1 / (ddx ** 2)))  # Time step
 
-# dt = ddx / M.sqrt(epsilon * sigma)
+#dt = M.sqrt(epsilon * sigma)  # same as 2*cc.c0
 
 z_max = data_type(0, 1)
 epsz = data_type(8.854E-12, flag)
@@ -84,11 +84,11 @@ t0 = data_type(1, flag)
 # print(ic.shape)
 ic = IE / 2
 jc = JE / 2
-ia = 7  # total scattered field boundaries
+ia = 5  # total scattered field boundaries
 ib = IE - ia - 1
 ja = ia
 jb = JE - ja - 1
-nsteps = 1500
+nsteps = 2500
 T = 0
 zero_range = ja + 2
 medium_eps = 1. / (epsilon_medium + sigma_medium * dt / epsz)
@@ -112,7 +112,7 @@ hy = np.zeros((IE, JE), dtype=data_type1)
 ihx = np.zeros((IE, JE), dtype=data_type1)
 ihy = np.zeros((IE, JE), dtype=data_type1)
 ga = np.ones((IE, JE), dtype=data_type1) * medium_eps  # main medium epsilon
-gb = np.zeros((IE, JE), dtype=data_type1) * medium_sigma  # main medium sigma
+gb = np.ones((IE, JE), dtype=data_type1) * medium_sigma  # main medium sigma
 Pz = np.zeros((IE, JE), dtype=data_type1)
 
 gi2 = np.ones(IE, dtype=data_type1)
@@ -131,17 +131,21 @@ ez_inc = np.zeros((IE, JE), dtype=data_type1)
 hx_inc = np.zeros((IE, JE), dtype=data_type1)
 
 # PML Definition
+alpha = 0.3333
 for i in range(npml):
     xnum = npml - i
     xd = npml
     xxn = xnum / xd
-    xn = 0.333333 * pow(xxn, 3)
+    xn = alpha * pow(xxn, 3)
+
     gi2[i] = 1. / (1. + xn)
     gi2[IE - 1 - i] = 1. / (1. + xn)
     gi3[i] = (1. - xn) / (1. + xn)
     gi3[IE - i - 1] = (1. - xn) / (1. + xn)
+
     xxn = (xnum - .5) / xd
-    xn = 0.333333 * pow(xxn, 3)
+    xn = alpha * pow(xxn, 3)
+
     fi1[i] = xn
     fi1[IE - 2 - i] = xn
     fi2[i] = 1.0 / (1.0 + xn)
@@ -153,8 +157,10 @@ for i in range(npml):
     gj2[JE - 1 - i] = 1. / (1. + xn)
     gj3[i] = (1.0 - xn) / (1. + xn)
     gj3[JE - i - 1] = (1. - xn) / (1. + xn)
+
     xxn = (xnum - .5) / xd
-    xn = 0.333333 * pow(xxn, 3)
+    xn = alpha * pow(xxn, 3)
+
     fj1[i] = xn
     fj1[JE - 2 - i] = xn
     fj2[i] = 1. / (1. + xn)
@@ -171,7 +177,7 @@ ax = fig.add_subplot(grid[:, :5])
 ay = fig.add_subplot(grid[:, 5:15])
 az = fig.add_subplot(grid[:, 15:])
 # Cyclic Number of image snapping
-frame_interval = 16
+frame_interval = 32
 ims = []
 
 wstart = 10
@@ -273,6 +279,14 @@ def Ez_inc_CU(ez_inc, hx_inc):
 
 
 @jit(nopython=True, parallel=True)
+def Hy_inc_CU(hy, ez_inc):
+    for j in prange(1, JE):
+        for i in prange(0, IE):
+            hy[i, j] = hy[i, j] - 0.5 * (ez_inc[i, j] - ez_inc[i - 1, j])
+    return hy
+
+
+@jit(nopython=True, parallel=True)
 def Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3):
     for j in prange(1, JE):
         for i in range(1, IE):
@@ -339,14 +353,6 @@ def Hy_CU(hy, ez, ihy, fi3, fi2, fi1):
 
 
 @jit(nopython=True, parallel=True)
-def Hy_inc_CU(hy, ez_inc):
-    for j in prange(0, JE):
-        for i in prange(1, IE):  # Loop through both dimensions
-            hy[i, j] = hy[i, j] - 0.5 * (ez_inc[i, j] - ez_inc[i - 1, j])
-    return hy
-
-
-@jit(nopython=True, parallel=True)
 def Power_Calc(Pz, ez, hy, hx):
     for j in prange(0, JE):
         for i in prange(0, IE):
@@ -355,33 +361,21 @@ def Power_Calc(Pz, ez, hy, hx):
 
 
 # -------------------------------- KERNELS ---------------------------
-
+zero_range = 3
 for n in range(1, nsteps):
     net = time.time()
     T += 1
     # MAIND FDTD LOOP
-    # ez_incd, hx_incd = cuda.to_device(ez_inc, stream=stream), cuda.to_device(hx_inc, stream=stream)
-    ez_inc = Ez_inc_CU(ez_inc, hx_inc)
-    # ez_inc, hx_inc = ez_incd.copy_to_host(stream=stream), hx_incd.copy_to_host(stream=stream)
-    # ez_inc[0] = ez_inc_low_m2
-    # ez_inc_low_m2 = ez_inc_low_m1
-    # ez_inc_low_m1 = ez_inc[1]
-    # ez_inc[JE - 1] = ez_inc_high_m2
-    # ez_inc_high_m2 = ez_inc_high_m1
-    # ez_inc_high_m1 = ez_inc[JE - 2]
-    ez_inc[0, :] = ez_inc_low_m2
-    ez_inc[1, :] = ez_inc_low_m1
-    ez_inc[-1, :] = ez_inc_high_m2
-    ez_inc[-2, :] = ez_inc_high_m1
-    dz = Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3)
 
+    ez_inc = Ez_inc_CU(ez_inc, hx_inc)
+    ez_inc[0:zero_range, :] = ez_inc[-zero_range:, :] = ez_inc[:, 0:zero_range] = ez_inc[:, -zero_range:] = 0.0
+
+    dz = Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3)
     if T < 500:
-        source = data_type(M.sin(2 * freq[0] * dt * T), flag)
-        #source = data_type(M.exp(-.5 * (pow((t0 - T * 4) / spread, 2))), flag)
-        # pulse = data_type(M.exp(-(T-t0)**2/(2*(t0/10)**2)) * M.sin(2*M.pi * (cc.c0/wavelength)*T),flag)
-        ez_inc[250:255, 250:255] = source  # plane wave
+        source = data_type(M.sin(2 * freq[0] * dt * T), flag)  # plane wave
+        ez_inc[200:300, zero_range+1] = source
     else:
-        ez_inc[250:255, 250:255] = 0.0
+        pass
 
     dz = Dz_inc_val_CU(dz, hx_inc)
     ez, iz = Ez_Dz_CU(ez, ga, gb, dz, iz)
@@ -395,7 +389,6 @@ for n in range(1, nsteps):
     netend = time.time()
     # print("Time netto : " + str((netend - net)) + "[s]")
     nett_time_sum += netend - net
-    # Drawing of the EM and FT plots
     if T % frame_interval == 0:
         x = np.linspace(0, JE, JE)
         y = np.linspace(0, IE, IE)
@@ -411,7 +404,7 @@ for n in range(1, nsteps):
                             textcoords="offset points", fontsize=9, color='white')
         # ay.set(xlim=(-ic, ic), ylim=(-jc, jc))
 
-        ims2 = ay.imshow(Z, cmap=cm.hot, extent=[0, JE, 0, IE])#, vmin=1e-5, vmax=1.)
+        ims2 = ay.imshow(Z, cmap=cm.hot, extent=[0, JE, 0, IE])  # , vmin=1e-5, vmax=1.)
 
         ims2.set_interpolation('bilinear')
         ims4 = ay.scatter(x_points, y_points, c='grey', s=70, alpha=0.01)
