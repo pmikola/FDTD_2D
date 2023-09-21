@@ -1,24 +1,16 @@
-import cmath
 import math as M
 import time
-from numba import cuda, vectorize, guvectorize, jit
-from numba import void, uint8, uint32, uint64, int32, int64, float32, float64, f8
-import numpy as np
-import matplotlib as mpl
-from matplotlib import pyplot as plt, animation, offsetbox
-from matplotlib.offsetbox import AnchoredText
-import matplotlib.cm as cm
-from C import C
-import cupy as cp
-from matplotlib.patches import Circle
 import cairo
-from sympy import symbols, Eq, solve
-# from scipy.fftpack import fft, fftshift
-from scipy import signal
-from scipy.signal import butter, lfilter, freqz
-import torch.fft as fft
+import matplotlib.cm as cm
+import matplotlib
+import numpy as np
 import torch
+# from scipy.fftpack import fft, fftshift
+import torch.fft as fft
+from matplotlib import pyplot as plt, animation
 from numba import prange, jit
+# import matplotlib.style as mplstyle
+from C import C
 
 # from vispy import plot as vp
 
@@ -30,6 +22,10 @@ nett_time_sum = 0
 np.seterr(divide='ignore', invalid='ignore')
 
 
+# plt.switch_backend('QtCairo')
+
+# mplstyle.use('fast')
+# mplstyle.use(['dark_background', 'ggplot', 'fast'])
 def data_type(data, flag):
     if flag == 1:
         return np.float32(data)
@@ -37,9 +33,114 @@ def data_type(data, flag):
         return np.float64(data)
 
 
+# -------------------------------- KERNELS ---------------------------
+
+@jit(nopython=True, parallel=True)
+def Ez_inc_CU(ez_inc, hx_inc):
+    for j in prange(1, JE):
+        for i in prange(0, IE):
+            if j <= IE - 10:
+                ez_inc[i, j] = ez_inc[i, j] + 0.5 * (hx_inc[i, j - 1] - hx_inc[i, j])
+            else:
+                ez_inc[i,j] = 0.
+    return ez_inc
+
+
+@jit(nopython=True, parallel=True)
+def Hx_inc_CU(hx, ez_inc):
+    for j in prange(0, JE - 1):
+        for i in prange(0, IE):
+            if j <= IE - 10:
+                hx[i, j] = hx[i, j] + 0.5 * (ez_inc[i, j] - ez_inc[i, j + 1])
+            else:
+                hx[i, j]=0.
+    return hx
+
+
+@jit(nopython=True, parallel=True)
+def Hy_inc_CU(hy, ez_inc):
+    # for j in prange(1, JE):
+    for j in prange(ja, jb + 1):
+        # for i in prange(0, IE):
+        # hy[i, j] = hy[i, j] - 0.5 * (ez_inc[i, j] - ez_inc[i - 1, j])
+        hy[ia - 1][j] = hy[ia - 1][j] - .5 * ez_inc[ia - 1, j]
+        hy[ib][j] = hy[ib][j] + .5 * ez_inc[ib, j]
+    return hy
+
+
+@jit(nopython=True, parallel=True)
+def Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3):
+    for j in prange(1, JE):
+        for i in range(1, IE):
+            dz[i, j] = gi3[i] * gj3[j] * dz[i, j] + \
+                       gi2[i] * gj2[j] * 0.5 * \
+                       (hy[i, j] - hy[i - 1][j] -
+                        hx[i, j] + hx[i, j - 1])
+
+    return dz
+
+
+@jit(nopython=True, parallel=True)
+def Dz_inc_val_CU(dz, hx_inc):
+    for i in prange(ia, ib + 1):
+        dz[i, ja] = dz[i, ja] + 0.5 * hx_inc[i, ja - 1]
+        dz[i, jb] = dz[i, jb] - 0.5 * hx_inc[i, jb]
+    return dz
+
+
+@jit(nopython=True, parallel=True)
+def Ez_Dz_CU(ez, ga, gb, dz, iz):
+    for j in prange(0, JE):
+        for i in prange(0, IE):
+            ez[i, j] = ga[i, j] * (dz[i, j] - iz[i, j])
+            iz[i, j] = iz[i, j] + gb[i, j] * ez[i, j]
+
+    return ez, iz
+
+
+@jit(nopython=True, parallel=True)
+def Hx_CU(ez, hx, ihx, fj3, fj2, fi1):
+    for j in prange(0, JE - 1):
+        for i in prange(0, IE - 1):
+            curl_e = ez[i, j] - ez[i, j + 1]
+            ihx[i, j] = ihx[i, j] + curl_e
+            hx[i, j] = fj3[j] * hx[i, j] + fj2[j] * \
+                       (.5 * curl_e + fi1[i] * ihx[i, j])
+    return ihx, hx
+
+
+@jit(nopython=True, parallel=True)
+def Hx_inc_val_CU(hx, ez_inc):
+    # for j in prange(0, JE):
+    for i in prange(ia, ib + 1):
+        hx[i, ja - 1] = hx[i, ja - 1] + 0.5 * ez_inc[i, ja]
+        hx[i, jb] = hx[i, jb] - 0.5 * ez_inc[i, jb]
+    return hx
+
+
+@jit(nopython=True, parallel=True)
+def Hy_CU(hy, ez, ihy, fi3, fi2, fi1):
+    for j in prange(0, JE):
+        for i in prange(0, IE - 1):
+            curl_e = ez[i, j] - ez[i + 1, j]
+            ihy[i, j] = ihy[i, j] + curl_e
+            hy[i, j] = fi3[i] * hy[i, j] - fi2[i] * \
+                       (.5 * curl_e + fi1[j] * ihy[i, j])
+    return ihy, hy
+
+
+@jit(nopython=True, parallel=True)
+def Power_Calc(Pz, ez, hy, hx):
+    for j in prange(0, JE):
+        for i in prange(0, IE):
+            Pz[i, j] = M.sqrt(M.pow(-ez[i, j] * hy[i, j], 2) + M.pow(ez[i, j] * hx[i, j], 2))
+    return Pz
+
+
+# -------------------------------- KERNELS ---------------------------
 #
-flag = 1
-data_type1 = np.float32
+flag = 0
+data_type1 = np.float64
 
 cc = C()
 
@@ -60,18 +161,19 @@ n_sigma = 1.  # cc.sigmaSiO2
 epsilon = data_type(n_index, flag)
 sigma = data_type(n_sigma, flag)
 epsilon_medium = data_type(1.003, flag)
-sigma_medium = data_type(0., flag) # TODO 0 or 1?
+sigma_medium = data_type(1., flag)
 
-wavelength = 4.25e-6  # cc.c0 / (n_index * (min(freq)))
+# cc.c0 / (n_index * (min(freq)))
 
-vm = wavelength * (min(freq))
+vm = cc.wavelength * (min(freq))
 # vm = cc.c0 / cc.nGe
 dx = 0.1  # each grid step is dx [um]
 # wavelength = (vm / (min(freq)))
-ddx = data_type(wavelength * dx, flag)  # Cells Size
-# dt = 1 / (cc.c0 * np.sqrt((1 / dx)**2 + (1 / dx)**2))
+ddx = data_type(cc.wavelength * dx, flag)  # Cells Size
+# dt = 1 / (cc.c0 * np.sqrt((1 / ddx)**2 + (1 / ddx)**2))
 # dt = data_type((ddx / cc.c0) * M.sqrt(2), flag)  # Time step
-dt = ddx / (2 * cc.c0)
+dt = ddx / (2 * cc.c0)  # Working moderate but ok
+
 #   CFL stability condition- Lax Equivalence Theorem
 # dt = 1 / (vm * M.sqrt(1 / (ddx ** 2) + 1 / (ddx ** 2)))  # Time step
 
@@ -88,12 +190,13 @@ ia = 5  # total scattered field boundaries
 ib = IE - ia - 1
 ja = ia
 jb = JE - ja - 1
-nsteps = 3500
+nsteps = 5500
 T = 0
 zero_range = ja + 2
 medium_eps = 1. / (epsilon_medium + sigma_medium * dt / epsz)
 medium_sigma = sigma_medium * dt / epsz
-
+k_vec = 2 * M.pi / cc.wavelength
+omega = 2 * M.pi * freq[0]
 # print(dt)
 for n in range(0, NFREQS):
     arg[n] = 2 * M.pi * freq[n] * dt
@@ -170,13 +273,13 @@ for i in range(npml):
 x_offset = 0
 y_offset = 0
 
-fig = plt.figure(figsize=(15, 5))
-grid = plt.GridSpec(20, 20, wspace=10, hspace=0.6)
-ax = fig.add_subplot(grid[:, :5])
-ay = fig.add_subplot(grid[:, 5:15])
-az = fig.add_subplot(grid[:, 15:])
+fig = plt.figure(figsize=(10, 5))
+grid = plt.GridSpec(20, 20, wspace=2, hspace=0.6)
+# ax = fig.add_subplot(grid[:, :5])
+ay = fig.add_subplot(grid[:, :10])
+az = fig.add_subplot(grid[:, 12:])
 # Cyclic Number of image snapping
-frame_interval = 8
+frame_interval = 32
 ims = []
 
 wstart = 10
@@ -188,27 +291,38 @@ b = 2
 x_points = []
 y_points = []
 data = np.zeros((IE, JE, 4), dtype=np.uint8)
-surface = cairo.ImageSurface.create_for_data(
-    data, cairo.FORMAT_ARGB32, IE, JE)
+# surface = cairo.ImageSurface.create_for_data(data, cairo.FORMAT_ARGB32, IE, JE)
+surface = cairo.ImageSurface.create_for_data(data, cairo.FORMAT_RGB24, IE, JE)
+
 cr = cairo.Context(surface)
 
 cr.set_source_rgb(1.0, 1.0, 1.0)
+
 cr.paint()
 
-# cr.rectangle(0, 50, 200, 5)
-# cr.rectangle(210, 50, 50, 5)
-# cr.rectangle(270, 50, 50, 5)
+# 2x2 MMI 4.25um
+waveguide_width = 20
+mmi_width = 62
+mmi_length = 320
+mmi_left_corner = IE / 2 - mmi_width / 2
+wg_offset = 2
+wg_top_left_corner = mmi_left_corner + wg_offset
+wg_bottom_left_corner = mmi_left_corner + mmi_width - waveguide_width - wg_offset
+wg_input_length = 100
+wg_output_start = wg_input_length + mmi_length
+wg_output_length = IE - wg_output_start
 # INPUT
-cr.rectangle(150, 100, 30, 100)
+cr.rectangle(wg_top_left_corner, 0, waveguide_width, wg_input_length)
+cr.rectangle(wg_bottom_left_corner, 0, waveguide_width, wg_input_length)
+# MMI SECTION
+cr.rectangle(mmi_left_corner, wg_input_length, mmi_width, mmi_length)
+# OUTPUT
+cr.rectangle(wg_top_left_corner, wg_output_start, waveguide_width, wg_output_length)
+cr.rectangle(wg_bottom_left_corner, wg_output_start, waveguide_width, wg_output_length)
+
 # cr.rectangle(40, 0, 20, 20)
 
-# MMI
-# cr.rectangle(10, 20, 70, 70)
 
-# OUTPUT
-# cr.rectangle(20, 70, 2, 90)
-# cr.rectangle(40, 70, 2, 90)
-# cr.rectangle(190, 60, 5, 200)
 # CIRCLE
 # cr.arc(150, 250, 50, 0, 2 * M.pi)
 # cr.set_line_width(5)
@@ -245,166 +359,39 @@ pwr_in_y = range(inputy, inputx)
 pwr_in_x = [inputx] * len(pwr_in_y)
 
 measx = int(JE - JE * 0.1)
-measy = int(IE * 0.1)
-probey = range(measy, measx)  # [measy] * JE  # range(0,JE) #
+measy = int(IE * 0.3)
+probey = range(measy, int(IE - IE * 0.3))  # [measy] * JE  # range(0,JE) #
 probex = [measx] * len(probey)  # [measx] * IE# range(0, IE)  # range(0,IE)#
 
 INTEGRATE = []
-window = 10
-source_t1 = 35
-source_t2 = source_t1 + 30
-
+window = 20
 fft_history_x = []
 fft_history_y = []
+source_start = int(wg_bottom_left_corner)
+source_end = int(wg_bottom_left_corner + waveguide_width)
 
-# in_ie1 = 190
-# in_ie2 = 210
-#
-# ia = in_ie1
-# ib = in_ie2
-
-k_vec = 2 * M.pi / wavelength
-omega = 2 * M.pi * freq[0]
-
-
-# -------------------------------- KERNELS ---------------------------
-
-@jit(nopython=True, parallel=True)
-def Ez_inc_CU(ez_inc, hx_inc):
-    for j in prange(1, JE):
-        for i in prange(0, IE):
-            ez_inc[i, j] = ez_inc[i, j] + 0.5 * (hx_inc[i, j - 1] - hx_inc[i, j])
-    return ez_inc
-
-
-@jit(nopython=True, parallel=True)
-def Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3):
-    for j in prange(1, JE):
-        for i in range(1, IE):
-            dz[i, j] = gi3[i] * gj3[j] * dz[i, j] + \
-                       gi2[i] * gj2[j] * 0.5 * \
-                       (hy[i, j] - hy[i - 1][j] -
-                        hx[i, j] + hx[i, j - 1])
-    return dz
-
-
-@jit(nopython=True, parallel=True)
-def Dz_inc_val_CU(dz, hx_inc):
-    for i in prange(ia, ib + 1):
-        dz[i, ja] = dz[i, ja] + 0.5 * hx_inc[i, ja - 1]
-        dz[i, jb] = dz[i, jb] - 0.5 * hx_inc[i, jb]
-    return dz
-
-
-@jit(nopython=True, parallel=True)
-def Ez_Dz_CU(ez, ga, gb, dz, iz):
-    for j in prange(0, JE):
-        for i in prange(0, IE):
-            ez[i, j] = ga[i, j] * (dz[i, j] - iz[i, j])
-            iz[i, j] = iz[i, j] + gb[i, j] * ez[i, j]
-    return ez, iz
-
-
-@jit(nopython=True, parallel=True)
-def Hx_inc_CU(hx, ez_inc):
-    for j in prange(0, JE - 1):
-        for i in prange(0, IE):
-            hx[i, j] = hx[i, j] + 0.5 * (ez_inc[i, j] - ez_inc[i, j + 1])
-    return hx
-
-
-@jit(nopython=True, parallel=True)
-def Hx_CU(ez, hx, ihx, fj3, fj2, fi1):
-    for j in prange(0, JE - 1):
-        for i in prange(0, IE - 1):
-            curl_e = ez[i, j] - ez[i, j + 1]
-            ihx[i, j] = ihx[i, j] + curl_e
-            hx[i, j] = fj3[j] * hx[i, j] + fj2[j] * \
-                       (.5 * curl_e + fi1[i] * ihx[i, j])
-    return ihx, hx
-
-
-@jit(nopython=True, parallel=True)
-def Hx_inc_val_CU(hx, ez_inc):
-    # for j in prange(0, JE):
-    for i in prange(ia, ib + 1):
-        hx[i, ja - 1] = hx[i, ja - 1] + 0.5 * ez_inc[i, ja]
-        hx[i, jb] = hx[i, jb] - 0.5 * ez_inc[i, jb]
-    return hx
-
-
-@jit(nopython=True, parallel=True)
-def Hy_CU(hy, ez, ihy, fi3, fi2, fi1):
-    for j in prange(0, JE):
-        for i in prange(0, IE - 1):
-            curl_e = ez[i, j] - ez[i + 1, j]
-            ihy[i, j] = ihy[i, j] + curl_e
-            hy[i, j] = fi3[i] * hy[i, j] - fi2[i] * \
-                       (.5 * curl_e + fi1[j] * ihy[i, j])
-    return ihy, hy
-
-
-@jit(nopython=True, parallel=True)
-def Hy_inc_CU(hy, ez_inc):
-    # for j in prange(1, JE):
-    for j in prange(ja, jb + 1):
-        # for i in prange(0, IE):
-        # hy[i, j] = hy[i, j] - 0.5 * (ez_inc[i, j] - ez_inc[i - 1, j])
-        hy[ia - 1][j] = hy[ia - 1][j] - .5 * ez_inc[ia - 1, j]
-        hy[ib][j] = hy[ib][j] + .5 * ez_inc[ib, j]
-    return hy
-
-
-@jit(nopython=True, parallel=True)
-def Power_Calc(Pz, ez, hy, hx):
-    for j in prange(0, JE):
-        for i in prange(0, IE):
-            Pz[i, j] = M.sqrt(M.pow(-ez[i, j] * hy[i, j], 2) + M.pow(ez[i, j] * hx[i, j], 2))
-    return Pz
-
-
-# -------------------------------- KERNELS ---------------------------
 zero_range = 3
 for n in range(1, nsteps):
     net = time.time()
     T += 1
     # MAIND FDTD LOOP
-
     ez_inc = Ez_inc_CU(ez_inc, hx_inc)
     ez_inc[0:zero_range, :] = ez_inc[-zero_range:, :] = ez_inc[:, 0:zero_range] = ez_inc[:, -zero_range:] = 0.0
-    # ez_inc[:,0] = ez_inc_low_m2
-    # ez_inc_low_m2 = ez_inc_low_m1
-    # ez_inc_low_m1 = ez_inc[:,1]
-    # ez_inc[:,JE - 1] = ez_inc_high_m2
-    # ez_inc_high_m2 = ez_inc_high_m1
-    # ez_inc_high_m1 = ez_inc[:,JE - 2]
     dz = Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3)
-    #dz[0:zero_range, :] = dz[-zero_range:, :] = dz[:, 0:zero_range] = dz[:, -zero_range:] = 0.0
-
-    if T < 500:
+    if T < int(nsteps / 4):
         source = data_type(M.sin(2 * freq[0] * dt * T), flag)  # plane wave
-        ez_inc[130:170, zero_range] = source
+        ez_inc[source_start:source_end, zero_range] = 4 * source / (source_end - source_start)
+
     else:
-        pass
+        ez_inc[source_start:source_end, zero_range:zero_range+5] = 0.
 
     dz = Dz_inc_val_CU(dz, hx_inc)
-    #dz[0:zero_range, :] = dz[-zero_range:, :] = dz[:, 0:zero_range] = dz[:, -zero_range:] = 0.0
-
     ez, iz = Ez_Dz_CU(ez, ga, gb, dz, iz)
-    #ez[0:zero_range, :] = ez[-zero_range:, :] = ez[:, 0:zero_range] = ez[:, -zero_range:] = 0.0
-
     hx_inc = Hx_inc_CU(hx_inc, ez_inc)
-    #hx_inc[0:zero_range, :] = hx_inc[-zero_range:, :] = hx_inc[:, 0:zero_range] = hx_inc[:, -zero_range:] = 0.0
-
     ihx, hx = Hx_CU(ez, hx, ihx, fj3, fj2, fi1)
-    #hx[0:zero_range, :] = hx[-zero_range:, :] = hx[:, 0:zero_range] = hx[:, -zero_range:] = 0.0
-
     hx = Hx_inc_val_CU(hx, ez_inc)
     ihy, hy = Hy_CU(hy, ez, ihy, fi3, fi2, fi1)
-    #hy[0:zero_range, :] = hy[-zero_range:, :] = hy[:, 0:zero_range] = hy[:, -zero_range:] = 0.0
     hy = Hy_inc_CU(hy, ez_inc)
-    #hy[0:zero_range, :] = hy[-zero_range:, :] = hy[:, 0:zero_range] = hy[:, -zero_range:] = 0.0
-
     Pz = Power_Calc(Pz, ez, hy, hx)
 
     netend = time.time()
@@ -425,60 +412,56 @@ for n in range(1, nsteps):
                             textcoords="offset points", fontsize=9, color='white')
         # ay.set(xlim=(-ic, ic), ylim=(-jc, jc))
 
-        ims2 = ay.imshow(Z, cmap=cm.hot, extent=[0, JE, 0, IE])  # , vmin=1e-5, vmax=1.)
+        ims2 = ay.imshow(Z, cmap=cm.seismic, extent=[0, JE, 0, IE])  # , vmin=0.05, vmax=1.)
 
         ims2.set_interpolation('bilinear')
         ims4 = ay.scatter(x_points, y_points, c='grey', s=70, alpha=0.01)
         ims5 = ay.scatter(probex, probey, c='red', s=5, alpha=0.05)
         ims6, = az.plot(np.abs(YY)[probey, probex], 'r')  # field distribiution
-        fft_out = fft.fftshift(fft.fft(torch.from_numpy(YY[:, measx])))
-        fft_out[1] = 0
-        fft_out[0] = 0
-        fft_res = torch.abs(fft_out)
-        fft_len = fft.fftfreq(len(fft_res), 1 / sr * 10)[:len(fft_res) // 2]
-        fft_result = 2.0 / len(fft_res) * torch.abs(fft_res[0:len(fft_res) // 2])
-        ims7, = ax.plot(fft_len, fft_result, 'g')
-        ims.append([ims2, ims4, ims5, ims6, ims7, title])
+        # FFT CALCULATION
+        # fft_out = fft.fftshift(fft.fft(torch.from_numpy(YY[:, measx])))
+        # fft_out[1] = 0
+        # fft_out[0] = 0
+        # fft_res = torch.abs(fft_out)
+        # fft_len = fft.fftfreq(len(fft_res), 1 / sr * 10)[:len(fft_res) // 2]
+        # fft_result = 2.0 / len(fft_res) * torch.abs(fft_res[0:len(fft_res) // 2])
+        # ims7, = ax.plot(fft_len, fft_result, 'g')
+        # FFT CALCULATION
+        ims.append([ims2, ims4, ims5, ims6, title])
         # print("Punkt : " + str(T))
 
 # ax.set_xscale('log')
-ax.grid(True)
+# ax.grid(True)
 ay.set_xlabel("x [um]")
 ay.set_ylabel("y [um]")
-ax.set_xlabel("Frequency [Hz]")
-ax.set_ylabel("Power [W]")
+# ax.set_xlabel("Frequency [Hz]")
+# ax.set_ylabel("Power [W]")
 az.set_xlabel("x [um]")
 az.set_ylabel("Power [W]")
 
-labels = [item.get_text() for item in ay.get_xticklabels()]
-# labels[0] = str(0)
-# labels[1] = str(0.2 * IE * dx)
-# labels[2] = str(0.4 * IE * dx)
-# labels[3] = str(0.6 * IE * dx)
-# labels[4] = str(0.8 * IE * dx)
-# labels[5] = str(IE * dx)
-# ay.set_xticklabels(labels)
-labels = [item.get_text() for item in ay.get_yticklabels()]
-# labels[0] = str(-0.5 * JE * dx)
-# labels[1] = str(-0.3 * JE * dx)
-# labels[2] = str(-0.1 * JE * dx)
-# labels[3] = str(0.1 * JE * dx)
-# labels[4] = str(0.3 * JE * dx)
-# labels[5] = str(0.5 * JE * dx)
-# ay.set_yticklabels(labels)
-labelz = [item.get_text() for item in az.get_xticklabels()]
-
-# print(len(labelz))
-# labelz[6] = str(round(0.5*probey[0] * dx,2))
-# labelz[5] = str(round(0.3*probey[0] * dx,2))
-# labelz[4] = str(round(0.1 * (probey[0]) * dx,2))
-# labelz[3] = str(0)
-# labelz[2] = str(round(-0.1 * (probey[0]) * dx,2))
-# labelz[1] = str(round(-0.3 * (probey[0]) * dx,2))
-# labelz[0] = str(round((-0.5*probey[0]) * dx,2))
-# az.set_xticklabels(labelz)
+xlabels = [item.get_text() for item in ay.get_xticklabels()]
+ylabels = [item.get_text() for item in ay.get_yticklabels()]
+xlab = [float(x) * dx for x in xlabels]
+ylab = [float(y) * dx - dx * IE / 2 for y in ylabels]
+ay.set_xticklabels(xlab)
+ay.set_yticklabels(ylab)
 
 az.grid(True)
+az.locator_params(axis='x', nbins=5)
+zlabels = [item.get_text() for item in az.get_xticklabels()]
+zlab = [float(z) * dx - float(zlabels[-1]) * dx / 2 for z in zlabels[1:]]
+zlab_bins = np.linspace(start=zlab[0], stop=zlab[-1], num=5)
+# az.axis( xmin = zlab[0], xmax = zlab[-1])
+# az.tick_params(axis='x', which='major', labelsize=8)
+# az.set_xticks([zlab_bins[0],zlab_bins[1],zlab_bins[2],zlab_bins[3],zlab_bins[4]])
+
+az.set_xticklabels([' ', zlab_bins[0], zlab_bins[1], zlab_bins[2], zlab_bins[3], zlab_bins[4]])
+# az.set_xticklabels(az.xaxis.get_majorticklabels())#, rotation=90)
+
+
+# zlab = [float(z) * dx - float(zlabels[-1]) * dx / 2 if z.isnumeric() else -float(z[1:]) * dx - float(zlabels[-1]) * dx / 2 for z in zlabels[:]]
+
+
 e = time.time()
 print("Time brutto : " + str((e - s)) + "[s]")
 print("Time netto SUM : " + str(nett_time_sum) + "[s]")
@@ -492,9 +475,6 @@ ani.save(file_name, writer="imagemagick", fps=30)
 print("OK")
 plt.show()
 
-# TODO : Meas port check
-# TODO : Input port definition
 # TODO : Check if the result are correct
 # TODO : Results in VisPy
 # TODO : Index profile of the medium
-# TODO : MMI Structure
