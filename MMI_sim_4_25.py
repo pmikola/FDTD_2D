@@ -42,7 +42,7 @@ def Ez_inc_CU(ez_inc, hx_inc):
             if j <= IE - 10:
                 ez_inc[i, j] = ez_inc[i, j] + 0.5 * (hx_inc[i, j - 1] - hx_inc[i, j])
             else:
-                ez_inc[i,j] = 0.
+                ez_inc[i, j] = 0.
     return ez_inc
 
 
@@ -53,7 +53,7 @@ def Hx_inc_CU(hx, ez_inc):
             if j <= IE - 10:
                 hx[i, j] = hx[i, j] + 0.5 * (ez_inc[i, j] - ez_inc[i, j + 1])
             else:
-                hx[i, j]=0.
+                hx[i, j] = 0.
     return hx
 
 
@@ -139,13 +139,13 @@ def Power_Calc(Pz, ez, hy, hx):
 
 # -------------------------------- KERNELS ---------------------------
 #
-flag = 0
-data_type1 = np.float64
+flag = 1
+data_type1 = np.float32
 
 cc = C()
 
-IE = 500
-JE = 500
+IE = 500  # y
+JE = 500  # x
 npml = 8
 NFREQS = 3
 freq = [data_type(0, 1)] * NFREQS
@@ -190,7 +190,7 @@ ia = 5  # total scattered field boundaries
 ib = IE - ia - 1
 ja = ia
 jb = JE - ja - 1
-nsteps = 5500
+nsteps = 200
 T = 0
 zero_range = ja + 2
 medium_eps = 1. / (epsilon_medium + sigma_medium * dt / epsz)
@@ -302,13 +302,13 @@ cr.paint()
 
 # 2x2 MMI 4.25um
 waveguide_width = 20
-mmi_width = 62
-mmi_length = 320
+mmi_width = 65
+mmi_length = 350
 mmi_left_corner = IE / 2 - mmi_width / 2
-wg_offset = 2
+wg_offset = 5
 wg_top_left_corner = mmi_left_corner + wg_offset
 wg_bottom_left_corner = mmi_left_corner + mmi_width - waveguide_width - wg_offset
-wg_input_length = 100
+wg_input_length = 50
 wg_output_start = wg_input_length + mmi_length
 wg_output_length = IE - wg_output_start
 # INPUT
@@ -320,19 +320,16 @@ cr.rectangle(mmi_left_corner, wg_input_length, mmi_width, mmi_length)
 cr.rectangle(wg_top_left_corner, wg_output_start, waveguide_width, wg_output_length)
 cr.rectangle(wg_bottom_left_corner, wg_output_start, waveguide_width, wg_output_length)
 
-# cr.rectangle(40, 0, 20, 20)
-
-
 # CIRCLE
 # cr.arc(150, 250, 50, 0, 2 * M.pi)
 # cr.set_line_width(5)
 # cr.close_path()
-
 cr.set_source_rgb(1.0, 0.0, 0.0)
 cr.fill()
 
 shape1 = data[:, :, 0].shape[0]
 shape2 = data[:, :, 0].shape[1]
+print(shape1, shape2)
 i = 0
 j = 0
 # print(data[38:48, 38:48, 0])
@@ -346,7 +343,7 @@ for j in range(0, shape2):
 
             x_points.append(i)
             y_points.append(JE - j)
-        if data[i, j, 0] > 0:
+        else:  # data[i, j, 0] >= 0:
             pass
             # print(data[i, j, 0])
 
@@ -364,6 +361,7 @@ probey = range(measy, int(IE - IE * 0.3))  # [measy] * JE  # range(0,JE) #
 probex = [measx] * len(probey)  # [measx] * IE# range(0, IE)  # range(0,IE)#
 
 INTEGRATE = []
+MaxField = []
 window = 20
 fft_history_x = []
 fft_history_y = []
@@ -378,12 +376,12 @@ for n in range(1, nsteps):
     ez_inc = Ez_inc_CU(ez_inc, hx_inc)
     ez_inc[0:zero_range, :] = ez_inc[-zero_range:, :] = ez_inc[:, 0:zero_range] = ez_inc[:, -zero_range:] = 0.0
     dz = Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3)
-    if T < int(nsteps / 4):
+    if T < int(nsteps / 2.2):
         source = data_type(M.sin(2 * freq[0] * dt * T), flag)  # plane wave
-        ez_inc[source_start:source_end, zero_range] = 4 * source / (source_end - source_start)
+        ez_inc[source_start:source_end, zero_range] = 2 * source / (source_end - source_start)
 
     else:
-        ez_inc[source_start:source_end, zero_range:zero_range+5] = 0.
+        ez_inc[source_start:source_end, zero_range:zero_range + 5] = 0.
 
     dz = Dz_inc_val_CU(dz, hx_inc)
     ez, iz = Ez_Dz_CU(ez, ga, gb, dz, iz)
@@ -405,8 +403,15 @@ for n in range(1, nsteps):
         Z = Pz[:][:]  # Power - W/m^2s
         INTEGRATE.append(Z)
         YY = np.trapz(INTEGRATE, axis=0, dx=1.0)  # / window
-        if len(INTEGRATE) >= window:
-            del INTEGRATE[0]
+        # print(YY.shape)
+        # print(np.sum(YY,axis=1))
+        # if len(INTEGRATE) >= window:
+        #     del INTEGRATE[0]
+        measure_port = np.abs(YY)[probey, probex]
+        MaxField.append(measure_port)
+        mf = np.sum(MaxField, axis=1)
+        mf_id = np.argmax(mf)
+        # print(mf_id)
         title = ay.annotate("Time :" + '{:<.4e}'.format(T * dt * 1 * 10 ** 15) + " fs", (1, 0.5),
                             xycoords=ay.get_window_extent, xytext=(-round(JE * 2), IE - 5),
                             textcoords="offset points", fontsize=9, color='white')
@@ -417,7 +422,7 @@ for n in range(1, nsteps):
         ims2.set_interpolation('bilinear')
         ims4 = ay.scatter(x_points, y_points, c='grey', s=70, alpha=0.01)
         ims5 = ay.scatter(probex, probey, c='red', s=5, alpha=0.05)
-        ims6, = az.plot(np.abs(YY)[probey, probex], 'r')  # field distribiution
+        ims6, = az.plot(MaxField[mf_id], 'r')  # field distribiution
         # FFT CALCULATION
         # fft_out = fft.fftshift(fft.fft(torch.from_numpy(YY[:, measx])))
         # fft_out[1] = 0
