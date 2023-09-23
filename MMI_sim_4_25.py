@@ -1,4 +1,5 @@
 import math as M
+import sys
 import time
 import cairo
 import matplotlib.cm as cm
@@ -34,11 +35,12 @@ def data_type(data, flag):
 
 
 # -------------------------------- KERNELS ---------------------------
+z = 10
 @jit(nopython=True, parallel=True)
 def Ez_inc_CU(ez_inc, hx_inc):
     for j in prange(1, JE):
         for i in prange(0, IE):
-            if j <= IE - 10:
+            if j <= IE - z:
                 ez_inc[i, j] = ez_inc[i, j] + 0.5 * (hx_inc[i, j - 1] - hx_inc[i, j])
             else:
                 ez_inc[i, j] = 0.
@@ -49,10 +51,13 @@ def Ez_inc_CU(ez_inc, hx_inc):
 def Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3):
     for j in prange(1, JE):
         for i in prange(1, IE):
-            dz[i, j] = gi3[i] * gj3[j] * dz[i, j] + \
-                       gi2[i] * gj2[j] * 0.5 * \
-                       (hy[i, j] - hy[i - 1, j] -
-                        hx[i, j] + hx[i, j - 1])
+            if j <= IE - z:
+                dz[i, j] = gi3[i] * gj3[j] * dz[i, j] + \
+                           gi2[i] * gj2[j] * 0.5 * \
+                           (hy[i, j] - hy[i - 1, j] -
+                            hx[i, j] + hx[i, j - 1])
+            else:
+                dz[i, j] = 0.
     return dz
 
 
@@ -77,12 +82,12 @@ def Dz_inc_val_CU(dz, hx_inc):
 def Ez_Dz_CU(ez, ga, gb, dz, iz):
     for j in prange(0, JE):
         for i in prange(0, IE):
-            if j <= IE-10:
+            if j <= IE - z:
                 ez[i, j] = ga[i, j] * (dz[i, j] - iz[i, j])
                 iz[i, j] = iz[i, j] + gb[i, j] * ez[i, j]
             else:
                 ez[i, j] = 0.
-                iz[i, j] = 0.#iz[i, j] + gb[i, j] * ez[i, j]
+                iz[i, j] = 0.  # iz[i, j] + gb[i, j] * ez[i, j]
     return ez, iz
 
 
@@ -90,10 +95,10 @@ def Ez_Dz_CU(ez, ga, gb, dz, iz):
 def Hx_inc_CU(hx_inc, ez_inc):
     for j in prange(0, JE - 1):
         for i in prange(0, IE):
-            # if j <= IE - 10:
-            hx_inc[i, j] = hx_inc[i, j] + 0.5 * (ez_inc[i, j] - ez_inc[i, j + 1])
-            # else:
-            #    hx[i, j] = 0.
+            if j <= IE - z:
+                hx_inc[i, j] = hx_inc[i, j] + 0.5 * (ez_inc[i, j] - ez_inc[i, j + 1])
+            else:
+                hx_inc[i, j] = 0.
     return hx_inc
 
 
@@ -101,10 +106,13 @@ def Hx_inc_CU(hx_inc, ez_inc):
 def Hx_CU(ez, hx, ihx, fj3, fj2, fi1):
     for j in prange(0, JE - 1):
         for i in prange(0, IE - 1):
-            curl_e = ez[i, j] - ez[i, j + 1]
-            ihx[i, j] = ihx[i, j] + curl_e
-            hx[i, j] = fj3[j] * hx[i, j] + fj2[j] * \
-                       (.5 * curl_e + fi1[i] * ihx[i, j])
+            if j <= IE - z:
+                curl_e = ez[i, j] - ez[i, j + 1]
+                ihx[i, j] = ihx[i, j] + curl_e
+                hx[i, j] = fj3[j] * hx[i, j] + fj2[j] * \
+                           (.5 * curl_e + fi1[i] * ihx[i, j])
+            else:
+                hx[i, j] = 0.
     return ihx, hx
 
 
@@ -121,10 +129,13 @@ def Hx_inc_val_CU(hx, ez_inc):
 def Hy_CU(hy, ez, ihy, fi3, fi2, fi1):
     for j in prange(0, JE):
         for i in prange(0, IE - 1):
-            curl_e = ez[i, j] - ez[i + 1, j]
-            ihy[i, j] = ihy[i, j] + curl_e
-            hy[i, j] = fi3[i] * hy[i, j] - fi2[i] * \
-                       (.5 * curl_e + fi1[j] * ihy[i, j])
+            if j <= IE - z:
+                curl_e = ez[i, j] - ez[i + 1, j]
+                ihy[i, j] = ihy[i, j] + curl_e
+                hy[i, j] = fi3[i] * hy[i, j] - fi2[i] * \
+                           (.5 * curl_e + fi1[j] * ihy[i, j])
+            else:
+                hy[i, j] = 0.
     return ihy, hy
 
 
@@ -144,7 +155,7 @@ data_type1 = np.float32
 cc = C()
 
 IE = 1000  # y
-JE = 1000  # x
+JE = 1000 # x
 npml = 8
 NFREQS = 3
 freq = [data_type(0, 1)] * NFREQS
@@ -189,7 +200,6 @@ ia = 7  # total scattered field boundaries
 ib = IE - ia - 1
 ja = ia
 jb = JE - ja - 1
-nsteps = 5250
 T = 0
 zero_range = 3  # 5
 zeroing_ezinc = 2
@@ -234,7 +244,7 @@ ez_inc = np.zeros((IE, JE), dtype=data_type1)
 hx_inc = np.zeros((IE, JE), dtype=data_type1)
 
 # PML Definition
-alpha = 0.33333
+alpha = 0.333333
 for i in range(npml):
     xnum = npml - i
     xd = npml
@@ -285,15 +295,7 @@ for i in range(npml):
 x_offset = 0
 y_offset = 0
 
-fig = plt.figure(figsize=(10, 5))
-grid = plt.GridSpec(20, 20, wspace=2, hspace=0.6)
-# ax = fig.add_subplot(grid[:, :5])
-ay = fig.add_subplot(grid[:, :10])
-az = fig.add_subplot(grid[:, 12:])
-# Cyclic Number of image snapping
-frame_interval = 128
 ims = []
-
 x_points = []
 y_points = []
 data = np.zeros((IE, JE, 4), dtype=np.uint8)
@@ -308,8 +310,8 @@ cr.paint()
 
 # 2x2 MMI 4.25um
 waveguide_width = 20
-mmi_width = 69
-mmi_length = 720
+mmi_width = 63
+mmi_length = 700
 mmi_left_corner = IE / 2 - mmi_width / 2
 wg_offset = 3
 wg_top_left_corner = mmi_left_corner + wg_offset
@@ -317,6 +319,7 @@ wg_bottom_left_corner = mmi_left_corner + mmi_width - waveguide_width - wg_offse
 wg_input_length = 100
 wg_output_start = wg_input_length + mmi_length
 wg_output_length = IE - wg_output_start
+
 # INPUT
 cr.rectangle(wg_top_left_corner, 0, waveguide_width, wg_input_length)
 cr.rectangle(wg_bottom_left_corner, 0, waveguide_width, wg_input_length)
@@ -327,9 +330,13 @@ cr.rectangle(wg_top_left_corner, wg_output_start, waveguide_width, wg_output_len
 cr.rectangle(wg_bottom_left_corner, wg_output_start, waveguide_width, wg_output_length)
 
 cr.set_source_rgb(1.0, 0.0, 0.0)
+# cr.clip_extents()
+# cr.stroke()
 # cr.set_source_rgb(1.0, 1.0, 1.0)
 # cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
 # cr.cairo_surface_flush(surface)
+# cr.close_path()
+
 cr.fill()
 
 shape1 = data[:, :, 0].shape[0]
@@ -352,8 +359,8 @@ for j in range(0, shape2):
             pass
             # print(data[i, j, 0])
 
-inputy_start = int(IE * 0.03)
-inputy_stop = int(IE * 0.09)
+inputy_start = int(ja)
+inputy_stop = int(wg_input_length)
 input_meas_port_range = np.arange(inputy_start, inputy_stop, 1)
 
 measx_start = int(JE - JE * 0.13)
@@ -379,13 +386,22 @@ y = np.linspace(0, IE, IE)
 # values = range(len(x))
 X, Y = np.meshgrid(x, y)
 
+fig = plt.figure(figsize=(10, 5))
+grid = plt.GridSpec(20, 20, wspace=2, hspace=0.6)
+# ax = fig.add_subplot(grid[:, :5])
+ay = fig.add_subplot(grid[:, :10])
+az = fig.add_subplot(grid[:, 12:])
+# Cyclic Number of image snapping
+frame_interval = 128
+nsteps = 5250
 for n in range(1, nsteps + 1):
     net = time.time()
     T += 1
     # MAIND FDTD LOOP
 
     ez_inc = Ez_inc_CU(ez_inc, hx_inc)
-    ez_inc[0:zeroing_ezinc, :] = ez_inc[-zeroing_ezinc:, :] = ez_inc[:, 0:zeroing_ezinc] = ez_inc[:,-zeroing_ezinc:] = 0.0
+    ez_inc[0:zeroing_ezinc, :] = ez_inc[-zeroing_ezinc:, :] = ez_inc[:, 0:zeroing_ezinc] = ez_inc[:,
+                                                                                           -zeroing_ezinc:] = 0.0
 
     dz = Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3)
     if T <= int(nsteps):
@@ -396,9 +412,10 @@ for n in range(1, nsteps + 1):
         # ky = k * np.sin(theta)
         # source = np.sin(kx + ky - w * T * dt)
         source = data_type(M.sin(2 * np.pi * freq[0] * dt * T), flag)  # plane wave
-        ez_inc[source_start:source_end, 0:zero_range] = A * source  # (source_end - source_start)
+        ez_inc[source_start:source_end, zero_range] = A * source  # (source_end - source_start)
     else:
-        ez_inc[source_start:source_end, zero_range] = 0.
+        pass
+        # ez_inc[source_start:source_end, zero_range] = 0.
 
     dz = Dz_inc_val_CU(dz, hx_inc)
     ez, iz = Ez_Dz_CU(ez, ga, gb, dz, iz)
@@ -448,7 +465,7 @@ for n in range(1, nsteps + 1):
 
         ims2 = ay.imshow(YY, cmap=cm.nipy_spectral, extent=[0, JE, 0, IE])
         ims2.set_interpolation('bilinear')
-        ims4 = ay.scatter(x_points, y_points, c='grey', s=70, alpha=0.01)
+        ims4 = ay.scatter(x_points, y_points, c='grey', s=1, alpha=0.01)
         ims_oport_start = ay.scatter(np.array(probex_out)[:, 0], probey, c='red', s=5, alpha=0.05)
         ims_oport_stop = ay.scatter(np.array(probex_out)[:, g], probey, c='red', s=5, alpha=0.05)
         ims_iport_start = ay.scatter(np.array(probex_in)[:, 0], probey, c='g', s=5, alpha=0.05)
@@ -467,7 +484,9 @@ for n in range(1, nsteps + 1):
         # FFT CALCULATION
         ims.append([ims2, ims4, ims_oport_start, ims_oport_stop, ims_iport_start, ims_iport_stop, ims_out,
                     ims_in])  # , title])
-        # print("Punkt : " + str(T))
+        sys.stdout.write('\r')
+        sys.stdout.write("Pending..." + str(round(T * 100. / nsteps, 2)) + " %")
+        sys.stdout.flush()
 
 # ax.set_xscale('log')
 # ax.grid(True)
@@ -476,7 +495,7 @@ ay.set_ylabel("y [um]")
 # ax.set_xlabel("Frequency [Hz]")
 # ax.set_ylabel("Power [W]")
 az.set_xlabel("x [um]")
-az.set_ylabel("Pf")
+az.set_ylabel("Pfwd")
 
 xlabels = [item.get_text() for item in ay.get_xticklabels()]
 ylabels = [item.get_text() for item in ay.get_yticklabels()]
@@ -507,12 +526,12 @@ print("Time netto SUM : " + str(nett_time_sum) + "[s]")
 file_name = "2d_fdtd_MMI_4.25um"
 # file_name = "./" + file_name + '.gif'
 file_name = "./" + file_name + '.gif'
-ani = animation.ArtistAnimation(fig, ims, interval=30, blit=True)
+ani = animation.ArtistAnimation(fig, ims, interval=30, blit=True)#, repeat=False)
 # ani.save(file_name, writer='pillow', fps=30, dpi=100)
 # ani.save(file_name + '.mp4', fps = 30, extra_args = ['-vcodec', 'libx264'])
 
 # ani.save(file_name, writer="imagemagick", fps=30)
-print("OK")
+print("Plotting...")
 plt.show()
 
 # TODO : Check if the result are correct
