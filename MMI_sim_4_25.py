@@ -38,41 +38,38 @@ def data_type(data, flag):
 def Ez_inc_CU(ez_inc, hx_inc):
     for j in prange(1, JE):
         for i in prange(0, IE):
-            #if j <= IE - 5:
-            ez_inc[i, j] = ez_inc[i, j] + 0.5 * (hx_inc[i, j - 1] - hx_inc[i, j])
-            #else:
-                #ez_inc[i, j] = 0.
+            if j <= IE - 10:
+                ez_inc[i, j] = ez_inc[i, j] + 0.5 * (hx_inc[i, j - 1] - hx_inc[i, j])
+            else:
+                ez_inc[i, j] = 0.
     return ez_inc
 
 
 @jit(nopython=True, parallel=True)
 def Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3):
     for j in prange(1, JE):
-        for i in range(1, IE):
+        for i in prange(1, IE):
             dz[i, j] = gi3[i] * gj3[j] * dz[i, j] + \
                        gi2[i] * gj2[j] * 0.5 * \
-                       (hy[i, j] - hy[i - 1,j] -
+                       (hy[i, j] - hy[i - 1, j] -
                         hx[i, j] + hx[i, j - 1])
     return dz
-
-
 
 
 @jit(nopython=True, parallel=True)
 def Hy_inc_CU(hy, ez_inc):
     # for j in prange(1, JE):
     for j in prange(ja, jb + 1):
-        # for i in prange(0, IE):
-        # hy[i, j] = hy[i, j] - 0.5 * (ez_inc[i, j] - ez_inc[i - 1, j])
-        hy[ia - 1][j] = hy[ia - 1][j] - .5 * ez_inc[ia-1, j]
-        hy[ib][j] = hy[ib][j] + .5 * ez_inc[ib, j]
+        hy[ia - 1, j] = hy[ia - 1, j] - .5 * ez_inc[ia - 1, j]
+        hy[ib, j] = hy[ib, j] + .5 * ez_inc[ib, j]
     return hy
+
 
 @jit(nopython=True, parallel=True)
 def Dz_inc_val_CU(dz, hx_inc):
-    for i in prange(ia, ib + 1):
+    for i in prange(ia, ib):
         dz[i, ja] = dz[i, ja] + 0.5 * hx_inc[i, ja - 1]
-        dz[i, jb] = dz[i, jb] - 0.5 * hx_inc[i, jb]
+        dz[i, jb] = dz[i, jb] - 0.5 * hx_inc[i, jb - 1]
     return dz
 
 
@@ -90,14 +87,14 @@ def Ez_Dz_CU(ez, ga, gb, dz, iz):
 
 
 @jit(nopython=True, parallel=True)
-def Hx_inc_CU(hx, ez_inc):
+def Hx_inc_CU(hx_inc, ez_inc):
     for j in prange(0, JE - 1):
         for i in prange(0, IE):
-            #if j <= IE - 10:
-            hx[i, j] = hx[i, j] + 0.5 * (ez_inc[i, j] - ez_inc[i, j + 1])
-            #else:
+            # if j <= IE - 10:
+            hx_inc[i, j] = hx_inc[i, j] + 0.5 * (ez_inc[i, j] - ez_inc[i, j + 1])
+            # else:
             #    hx[i, j] = 0.
-    return hx
+    return hx_inc
 
 
 @jit(nopython=True, parallel=True)
@@ -129,7 +126,6 @@ def Hy_CU(hy, ez, ihy, fi3, fi2, fi1):
             hy[i, j] = fi3[i] * hy[i, j] - fi2[i] * \
                        (.5 * curl_e + fi1[j] * ihy[i, j])
     return ihy, hy
-
 
 
 @jit(nopython=True, parallel=True)
@@ -195,8 +191,8 @@ ja = ia
 jb = JE - ja - 1
 nsteps = 5250
 T = 0
-zero_range = 7  # 5
-zeroing_ezinc = 3
+zero_range = 3  # 5
+zeroing_ezinc = 2
 medium_eps = 1. / (epsilon_medium + sigma_medium * dt / epsz)
 medium_sigma = sigma_medium * dt / epsz
 k_vec = 2 * M.pi / cc.wavelength
@@ -243,36 +239,48 @@ for i in range(npml):
     xnum = npml - i
     xd = npml
     xxn = xnum / xd
-    xn = alpha * pow(xxn, 3)
+    xn = alpha * xxn ** 3
+    xxn_minus_half = (xnum - 0.5) / xd
 
-    gi2[i] = 1. / (1. + xn)
-    gi2[IE - 1 - i] = 1. / (1. + xn)
-    gi3[i] = (1. - xn) / (1. + xn)
-    gi3[IE - i - 1] = (1. - xn) / (1. + xn)
+    gi_value = 1. / (1. + xn)
+    gi2[i] = gi_value
+    gi2[IE - 1 - i] = gi_value
 
-    xxn = (xnum - .5) / xd
-    xn = alpha * pow(xxn, 3)
-    fi1[i] = xn
-    fi1[IE - 2 - i] = xn
-    fi2[i] = 1.0 / (1.0 + xn)
-    fi2[IE - 2 - i] = 1.0 / (1.0 + xn)
-    fi3[i] = (1.0 - xn) / (1.0 + xn)
-    fi3[IE - 2 - i] = (1.0 - xn) / (1.0 + xn)
+    gi3_value = (1. - xn) / (1. + xn)
+    gi3[i] = gi3_value
+    gi3[IE - i - 1] = gi3_value
 
-    gj2[i] = 1. / (1. + xn)
-    gj2[JE - 1 - i] = 1. / (1. + xn)
-    gj3[i] = (1.0 - xn) / (1. + xn)
-    gj3[JE - i - 1] = (1. - xn) / (1. + xn)
+    fi1_value = xn
+    fi1[i] = fi1_value
+    fi1[IE - 2 - i] = fi1_value
 
-    xxn = (xnum - .5) / xd
-    xn = alpha * pow(xxn, 3)
+    fi2_value = 1.0 / (1.0 + xn)
+    fi2[i] = fi2_value
+    fi2[IE - 2 - i] = fi2_value
 
-    fj1[i] = xn
-    fj1[JE - 2 - i] = xn
-    fj2[i] = 1. / (1. + xn)
-    fj2[JE - 2 - i] = 1. / (1. + xn)
-    fj3[i] = (1. - xn) / (1. + xn)
-    fj3[JE - 2 - i] = (1. - xn) / (1. + xn)
+    fi3_value = (1.0 - xn) / (1.0 + xn)
+    fi3[i] = fi3_value
+    fi3[IE - 2 - i] = fi3_value
+
+    gj_value = 1. / (1. + xn)
+    gj2[i] = gj_value
+    gj2[JE - 1 - i] = gj_value
+
+    gj3_value = (1. - xn) / (1. + xn)
+    gj3[i] = gj3_value
+    gj3[JE - i - 1] = gj3_value
+
+    fj1_value = xn
+    fj1[i] = fj1_value
+    fj1[JE - 2 - i] = fj1_value
+
+    fj2_value = 1. / (1. + xn)
+    fj2[i] = fj2_value
+    fj2[JE - 2 - i] = fj2_value
+
+    fj3_value = (1. - xn) / (1. + xn)
+    fj3[i] = fj3_value
+    fj3[JE - 2 - i] = fj3_value
 
 x_offset = 0
 y_offset = 0
@@ -371,7 +379,7 @@ y = np.linspace(0, IE, IE)
 # values = range(len(x))
 X, Y = np.meshgrid(x, y)
 
-for n in range(1, nsteps):
+for n in range(1, nsteps + 1):
     net = time.time()
     T += 1
     # MAIND FDTD LOOP
@@ -380,7 +388,7 @@ for n in range(1, nsteps):
     ez_inc[0:zeroing_ezinc, :] = ez_inc[-zeroing_ezinc:, :] = ez_inc[:, 0:zeroing_ezinc] = ez_inc[:,-zeroing_ezinc:] = 0.0
 
     dz = Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3)
-    if T < int(nsteps):
+    if T <= int(nsteps):
         # w = 2 * np.pi * freq[0]
         # k = 2 * np.pi / wavelength
         # theta = np.pi / 2
@@ -391,15 +399,6 @@ for n in range(1, nsteps):
         ez_inc[source_start:source_end, 0:zero_range] = A * source  # (source_end - source_start)
     else:
         ez_inc[source_start:source_end, zero_range] = 0.
-        # ez_inc[source_start-1:source_end+1, zero_range:zero_range + 35] = 100.
-        # dz[source_start-1:source_end+1, zero_range:zero_range + 35] = 0.
-        # ez[source_start-1:source_end+1, zero_range:zero_range + 35] = 0.
-        # hx_inc[source_start-1:source_end+1, zero_range:zero_range + 35] = 0.
-        # hx[source_start-1:source_end+1, zero_range:zero_range + 35] = 0.
-        # hy[source_start-1:source_end+1, zero_range:zero_range + 35] = 0.
-        # Pz[source_start-1:source_end+1, zero_range:zero_range + 35] = 0.
-        # iz[source_start-1:source_end+1, zero_range:zero_range + 35] = 0.
-        # ihx[source_start-1:source_end+1, zero_range:zero_range + 35] = 0.
 
     dz = Dz_inc_val_CU(dz, hx_inc)
     ez, iz = Ez_Dz_CU(ez, ga, gb, dz, iz)
