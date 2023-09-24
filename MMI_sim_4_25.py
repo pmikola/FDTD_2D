@@ -36,6 +36,8 @@ def data_type(data, flag):
 
 # -------------------------------- KERNELS ---------------------------
 z = 10
+
+
 @jit(nopython=True, parallel=True)
 def Ez_inc_CU(ez_inc, hx_inc):
     for j in prange(1, JE):
@@ -155,7 +157,7 @@ data_type1 = np.float32
 cc = C()
 
 IE = 1000  # y
-JE = 1000 # x
+JE = 1000  # x
 npml = 8
 NFREQS = 3
 freq = [data_type(0, 1)] * NFREQS
@@ -301,43 +303,72 @@ y_points = []
 data = np.zeros((IE, JE, 4), dtype=np.uint8)
 # surface = cairo.ImageSurface.create_for_data(data, cairo.FORMAT_ARGB32, IE, JE)
 surface = cairo.ImageSurface.create_for_data(data, cairo.FORMAT_RGB24, IE, JE)
-
 cr = cairo.Context(surface)
-
 # cr.set_source_rgb(1.0, 0.0, 0.0)
 cr.set_source_rgb(1.0, 1.0, 1.0)
 cr.paint()
 
-# 2x2 MMI 4.25um
+# 2x2 MMI 4.25um PARAMETERS
+############################
 waveguide_width = 20
 mmi_width = 63
 mmi_length = 700
 mmi_left_corner = IE / 2 - mmi_width / 2
-wg_offset = 3
+wg_offset = 5
+wg_input_length = 50
+tapers_length = 50
+temp_offset = 100
+taper_width = 5
+############################
 wg_top_left_corner = mmi_left_corner + wg_offset
 wg_bottom_left_corner = mmi_left_corner + mmi_width - waveguide_width - wg_offset
-wg_input_length = 100
-wg_output_start = wg_input_length + mmi_length
+wg_output_start = wg_input_length + mmi_length+2*tapers_length
 wg_output_length = IE - wg_output_start
-
-# INPUT
+############################
+taper_width_ittop_right = wg_top_left_corner - taper_width
+taper_width_itbottom_right = wg_top_left_corner + taper_width + waveguide_width
+taper_width_ibtop_right = wg_bottom_left_corner - taper_width
+taper_width_ibbottom_right = wg_bottom_left_corner + taper_width + waveguide_width
+############################
+taper_width_ottop_right = wg_top_left_corner - taper_width
+taper_width_otbottom_right = wg_top_left_corner + taper_width + waveguide_width
+taper_width_obtop_right = wg_bottom_left_corner - taper_width
+taper_width_obbottom_right = wg_bottom_left_corner + taper_width + waveguide_width
+# INPUT WAVEGUIDES
 cr.rectangle(wg_top_left_corner, 0, waveguide_width, wg_input_length)
 cr.rectangle(wg_bottom_left_corner, 0, waveguide_width, wg_input_length)
+# INPUT TAPERS
+# TOP TAPER
+cr.move_to(wg_top_left_corner, wg_input_length)  # top left corner
+cr.line_to(taper_width_ittop_right, wg_input_length + tapers_length)  # top right corner
+cr.line_to(taper_width_itbottom_right, wg_input_length + tapers_length)  # bottom right corner
+cr.line_to(wg_top_left_corner + waveguide_width, wg_input_length)  # bottom left corner
+# BOTTOM TAPER
+cr.move_to(wg_bottom_left_corner, wg_input_length)  # top left corner
+cr.line_to(taper_width_ibtop_right, wg_input_length + tapers_length)  # top right corner
+cr.line_to(taper_width_ibbottom_right, wg_input_length + tapers_length)  # bottom right corner
+cr.line_to(wg_bottom_left_corner + waveguide_width, wg_input_length)  # bottom left corner
 # MMI SECTION
-cr.rectangle(mmi_left_corner, wg_input_length, mmi_width, mmi_length)
+cr.rectangle(mmi_left_corner, wg_input_length + tapers_length, mmi_width, mmi_length)
+# OUTPUT TAPERS
+# TOP TAPER
+cr.move_to(taper_width_ottop_right, wg_input_length+ tapers_length+mmi_length)  # top left corner
+cr.line_to(wg_top_left_corner, wg_input_length+ tapers_length + tapers_length+mmi_length)  # top right corner
+cr.line_to(wg_top_left_corner + waveguide_width, wg_input_length+ tapers_length + tapers_length+mmi_length)  # bottom right corner
+cr.line_to(taper_width_otbottom_right, wg_input_length+ tapers_length+mmi_length)  # bottom left corner
+# BOTTOM TAPER
+cr.move_to(taper_width_obtop_right, wg_input_length+ tapers_length+mmi_length)  # top left corner
+cr.line_to(wg_bottom_left_corner, wg_input_length+ tapers_length + tapers_length+mmi_length)  # top right corner
+cr.line_to(wg_bottom_left_corner + waveguide_width,wg_input_length+ tapers_length + tapers_length+mmi_length)  # bottom right corner
+cr.line_to(taper_width_obbottom_right, wg_input_length+ tapers_length+mmi_length)  # bottom left corner
+
 # OUTPUT
 cr.rectangle(wg_top_left_corner, wg_output_start, waveguide_width, wg_output_length)
 cr.rectangle(wg_bottom_left_corner, wg_output_start, waveguide_width, wg_output_length)
 
 cr.set_source_rgb(1.0, 0.0, 0.0)
-# cr.clip_extents()
-# cr.stroke()
-# cr.set_source_rgb(1.0, 1.0, 1.0)
-# cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
-# cr.cairo_surface_flush(surface)
-# cr.close_path()
-
 cr.fill()
+############################
 
 shape1 = data[:, :, 0].shape[0]
 shape2 = data[:, :, 0].shape[1]
@@ -392,8 +423,8 @@ grid = plt.GridSpec(20, 20, wspace=2, hspace=0.6)
 ay = fig.add_subplot(grid[:, :10])
 az = fig.add_subplot(grid[:, 12:])
 # Cyclic Number of image snapping
-frame_interval = 128
-nsteps = 5250
+frame_interval = 64
+nsteps = 100
 for n in range(1, nsteps + 1):
     net = time.time()
     T += 1
@@ -413,6 +444,8 @@ for n in range(1, nsteps + 1):
         # source = np.sin(kx + ky - w * T * dt)
         source = data_type(M.sin(2 * np.pi * freq[0] * dt * T), flag)  # plane wave
         ez_inc[source_start:source_end, zero_range] = A * source  # (source_end - source_start)
+        # ez_inc[source_start:source_end, 0:zero_range] = A * source  # (source_end - source_start)
+
     else:
         pass
         # ez_inc[source_start:source_end, zero_range] = 0.
@@ -465,7 +498,7 @@ for n in range(1, nsteps + 1):
 
         ims2 = ay.imshow(YY, cmap=cm.nipy_spectral, extent=[0, JE, 0, IE])
         ims2.set_interpolation('bilinear')
-        ims4 = ay.scatter(x_points, y_points, c='grey', s=1, alpha=0.01)
+        ims4 = ay.scatter(x_points, y_points, c='grey', s=1, alpha=0.1)
         ims_oport_start = ay.scatter(np.array(probex_out)[:, 0], probey, c='red', s=5, alpha=0.05)
         ims_oport_stop = ay.scatter(np.array(probex_out)[:, g], probey, c='red', s=5, alpha=0.05)
         ims_iport_start = ay.scatter(np.array(probex_in)[:, 0], probey, c='g', s=5, alpha=0.05)
@@ -526,7 +559,7 @@ print("Time netto SUM : " + str(nett_time_sum) + "[s]")
 file_name = "2d_fdtd_MMI_4.25um"
 # file_name = "./" + file_name + '.gif'
 file_name = "./" + file_name + '.gif'
-ani = animation.ArtistAnimation(fig, ims, interval=30, blit=True)#, repeat=False)
+ani = animation.ArtistAnimation(fig, ims, interval=30, blit=True)  # , repeat=False)
 # ani.save(file_name, writer='pillow', fps=30, dpi=100)
 # ani.save(file_name + '.mp4', fps = 30, extra_args = ['-vcodec', 'libx264'])
 
