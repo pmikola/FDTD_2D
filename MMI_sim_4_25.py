@@ -6,17 +6,27 @@ import matplotlib.cm as cm
 import matplotlib
 import numpy as np
 import torch
+import torch as tf
+import numba
+# import tensorflow as tf
 # from scipy.fftpack import fft, fftshift
 import torch.fft as fft
 from matplotlib import pyplot as plt, animation
 from numba import prange, jit
 # import matplotlib.style as mplstyle
 from C import C
-
+from numba import cuda
+from numba import vectorize
 # from vispy import plot as vp
 
 # mpl.use('Agg')
 jit(device=True)
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    print("GPU is available and being used")
+else:
+    device = torch.device("cpu")
+    print("GPU is not available, using CPU instead")
 
 s = time.time()
 nett_time_sum = 0
@@ -36,9 +46,8 @@ def data_type(data, flag):
 
 # -------------------------------- KERNELS ---------------------------
 z = 10
-
-
 @jit(nopython=True, parallel=True)
+# @numba.jit(nopython=True, parallel=True)
 def Ez_inc_CU(ez_inc, hx_inc):
     for j in prange(1, JE):
         for i in prange(0, IE):
@@ -50,6 +59,7 @@ def Ez_inc_CU(ez_inc, hx_inc):
 
 
 @jit(nopython=True, parallel=True)
+# @numba.jit(nopython=True, parallel=True)
 def Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3):
     for j in prange(1, JE):
         for i in prange(1, IE):
@@ -64,6 +74,7 @@ def Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3):
 
 
 @jit(nopython=True, parallel=True)
+# @numba.jit(nopython=True, parallel=True)
 def Hy_inc_CU(hy, ez_inc):
     # for j in prange(1, JE):
     for j in prange(ja, jb + 1):
@@ -73,6 +84,7 @@ def Hy_inc_CU(hy, ez_inc):
 
 
 @jit(nopython=True, parallel=True)
+# @numba.jit(nopython=True, parallel=True)
 def Dz_inc_val_CU(dz, hx_inc):
     for i in prange(ia, ib):
         dz[i, ja] = dz[i, ja] + 0.5 * hx_inc[i, ja - 1]
@@ -81,6 +93,7 @@ def Dz_inc_val_CU(dz, hx_inc):
 
 
 @jit(nopython=True, parallel=True)
+# @numba.jit(nopython=True, parallel=True)
 def Ez_Dz_CU(ez, ga, gb, dz, iz):
     for j in prange(0, JE):
         for i in prange(0, IE):
@@ -94,6 +107,7 @@ def Ez_Dz_CU(ez, ga, gb, dz, iz):
 
 
 @jit(nopython=True, parallel=True)
+# @numba.jit(nopython=True, parallel=True)
 def Hx_inc_CU(hx_inc, ez_inc):
     for j in prange(0, JE - 1):
         for i in prange(0, IE):
@@ -105,6 +119,7 @@ def Hx_inc_CU(hx_inc, ez_inc):
 
 
 @jit(nopython=True, parallel=True)
+# @numba.jit(nopython=True, parallel=True)
 def Hx_CU(ez, hx, ihx, fj3, fj2, fi1):
     for j in prange(0, JE - 1):
         for i in prange(0, IE - 1):
@@ -119,6 +134,7 @@ def Hx_CU(ez, hx, ihx, fj3, fj2, fi1):
 
 
 @jit(nopython=True, parallel=True)
+# @numba.jit(nopython=True, parallel=True)
 def Hx_inc_val_CU(hx, ez_inc):
     # for j in prange(0, JE):
     for i in prange(ia, ib + 1):
@@ -128,6 +144,7 @@ def Hx_inc_val_CU(hx, ez_inc):
 
 
 @jit(nopython=True, parallel=True)
+# @numba.jit(nopython=True, parallel=True)
 def Hy_CU(hy, ez, ihy, fi3, fi2, fi1):
     for j in prange(0, JE):
         for i in prange(0, IE - 1):
@@ -141,7 +158,8 @@ def Hy_CU(hy, ez, ihy, fi3, fi2, fi1):
     return ihy, hy
 
 
-@jit(nopython=True, parallel=True)
+# @jit(nopython=True, parallel=True)
+@numba.jit(nopython=True, parallel=True)
 def Power_Calc(Pz, ez, hy, hx):
     for j in prange(0, JE):
         for i in prange(0, IE):
@@ -150,12 +168,9 @@ def Power_Calc(Pz, ez, hy, hx):
 
 
 # -------------------------------- KERNELS ---------------------------
-#
+cc = C()
 flag = 1
 data_type1 = np.float32
-
-cc = C()
-
 IE = 1000  # y
 JE = 1000  # x
 npml = 8
@@ -219,31 +234,31 @@ ez_inc_low_m1 = data_type(0., flag)
 ez_inc_high_m2 = data_type(0., flag)
 ez_inc_high_m1 = data_type(0., flag)
 
-dz = np.zeros((IE, JE), dtype=data_type1)
-iz = np.zeros((IE, JE), dtype=data_type1)
-ez = np.zeros((IE, JE), dtype=data_type1)
-hx = np.zeros((IE, JE), dtype=data_type1)
-hy = np.zeros((IE, JE), dtype=data_type1)
-ihx = np.zeros((IE, JE), dtype=data_type1)
-ihy = np.zeros((IE, JE), dtype=data_type1)
-ga = np.ones((IE, JE), dtype=data_type1) * medium_eps  # main medium epsilon
-gb = np.ones((IE, JE), dtype=data_type1) * medium_sigma  # main medium sigma
-Pz = np.zeros((IE, JE), dtype=data_type1)
+dz = tf.zeros((IE, JE), dtype=data_type1)
+iz = tf.zeros((IE, JE), dtype=data_type1)
+ez = tf.zeros((IE, JE), dtype=data_type1)
+hx = tf.zeros((IE, JE), dtype=data_type1)
+hy = tf.zeros((IE, JE), dtype=data_type1)
+ihx = tf.zeros((IE, JE), dtype=data_type1)
+ihy = tf.zeros((IE, JE), dtype=data_type1)
+ga = tf.ones((IE, JE), dtype=data_type1) * medium_eps  # main medium epsilon
+gb = tf.ones((IE, JE), dtype=data_type1) * medium_sigma  # main medium sigma
+Pz = tf.zeros((IE, JE), dtype=data_type1)
 
-gi2 = np.ones(IE, dtype=data_type1)
-gi3 = np.ones(IE, dtype=data_type1)
-fi1 = np.zeros(IE, dtype=data_type1)
-fi2 = np.ones(IE, dtype=data_type1)
-fi3 = np.ones(IE, dtype=data_type1)
+gi2 = tf.ones(IE, dtype=data_type1)
+gi3 = tf.ones(IE, dtype=data_type1)
+fi1 = tf.zeros(IE, dtype=data_type1)
+fi2 = tf.ones(IE, dtype=data_type1)
+fi3 = tf.ones(IE, dtype=data_type1)
 
-gj2 = np.ones(JE, dtype=data_type1)
-gj3 = np.ones(JE, dtype=data_type1)
-fj1 = np.zeros(JE, dtype=data_type1)
-fj2 = np.ones(JE, dtype=data_type1)
-fj3 = np.ones(JE, dtype=data_type1)
+gj2 = tf.ones(JE, dtype=data_type1)
+gj3 = tf.ones(JE, dtype=data_type1)
+fj1 = tf.zeros(JE, dtype=data_type1)
+fj2 = tf.ones(JE, dtype=data_type1)
+fj3 = tf.ones(JE, dtype=data_type1)
 
-ez_inc = np.zeros((IE, JE), dtype=data_type1)
-hx_inc = np.zeros((IE, JE), dtype=data_type1)
+ez_inc = tf.zeros((IE, JE), dtype=data_type1)
+hx_inc = tf.zeros((IE, JE), dtype=data_type1)
 
 # PML Definition
 alpha = 0.333333
@@ -315,25 +330,25 @@ mmi_width = 63
 mmi_length = 700
 mmi_left_corner = IE / 2 - mmi_width / 2
 wg_offset = 5
-wg_input_length = 50
+wg_input_length = 100
 tapers_length = 50
 temp_offset = 100
-taper_width = 5
+taper_width_offset = 3
 ############################
 wg_top_left_corner = mmi_left_corner + wg_offset
 wg_bottom_left_corner = mmi_left_corner + mmi_width - waveguide_width - wg_offset
-wg_output_start = wg_input_length + mmi_length+2*tapers_length
+wg_output_start = wg_input_length + mmi_length + 2 * tapers_length
 wg_output_length = IE - wg_output_start
 ############################
-taper_width_ittop_right = wg_top_left_corner - taper_width
-taper_width_itbottom_right = wg_top_left_corner + taper_width + waveguide_width
-taper_width_ibtop_right = wg_bottom_left_corner - taper_width
-taper_width_ibbottom_right = wg_bottom_left_corner + taper_width + waveguide_width
+taper_width_ittop_right = wg_top_left_corner - taper_width_offset
+taper_width_itbottom_right = wg_top_left_corner + taper_width_offset + waveguide_width
+taper_width_ibtop_right = wg_bottom_left_corner - taper_width_offset
+taper_width_ibbottom_right = wg_bottom_left_corner + taper_width_offset + waveguide_width
 ############################
-taper_width_ottop_right = wg_top_left_corner - taper_width
-taper_width_otbottom_right = wg_top_left_corner + taper_width + waveguide_width
-taper_width_obtop_right = wg_bottom_left_corner - taper_width
-taper_width_obbottom_right = wg_bottom_left_corner + taper_width + waveguide_width
+taper_width_ottop_right = wg_top_left_corner - taper_width_offset
+taper_width_otbottom_right = wg_top_left_corner + taper_width_offset + waveguide_width
+taper_width_obtop_right = wg_bottom_left_corner - taper_width_offset
+taper_width_obbottom_right = wg_bottom_left_corner + taper_width_offset + waveguide_width
 # INPUT WAVEGUIDES
 cr.rectangle(wg_top_left_corner, 0, waveguide_width, wg_input_length)
 cr.rectangle(wg_bottom_left_corner, 0, waveguide_width, wg_input_length)
@@ -352,16 +367,17 @@ cr.line_to(wg_bottom_left_corner + waveguide_width, wg_input_length)  # bottom l
 cr.rectangle(mmi_left_corner, wg_input_length + tapers_length, mmi_width, mmi_length)
 # OUTPUT TAPERS
 # TOP TAPER
-cr.move_to(taper_width_ottop_right, wg_input_length+ tapers_length+mmi_length)  # top left corner
-cr.line_to(wg_top_left_corner, wg_input_length+ tapers_length + tapers_length+mmi_length)  # top right corner
-cr.line_to(wg_top_left_corner + waveguide_width, wg_input_length+ tapers_length + tapers_length+mmi_length)  # bottom right corner
-cr.line_to(taper_width_otbottom_right, wg_input_length+ tapers_length+mmi_length)  # bottom left corner
+cr.move_to(taper_width_ottop_right, wg_input_length + tapers_length + mmi_length)  # top left corner
+cr.line_to(wg_top_left_corner, wg_input_length + tapers_length + tapers_length + mmi_length)  # top right corner
+cr.line_to(wg_top_left_corner + waveguide_width,
+           wg_input_length + tapers_length + tapers_length + mmi_length)  # bottom right corner
+cr.line_to(taper_width_otbottom_right, wg_input_length + tapers_length + mmi_length)  # bottom left corner
 # BOTTOM TAPER
-cr.move_to(taper_width_obtop_right, wg_input_length+ tapers_length+mmi_length)  # top left corner
-cr.line_to(wg_bottom_left_corner, wg_input_length+ tapers_length + tapers_length+mmi_length)  # top right corner
-cr.line_to(wg_bottom_left_corner + waveguide_width,wg_input_length+ tapers_length + tapers_length+mmi_length)  # bottom right corner
-cr.line_to(taper_width_obbottom_right, wg_input_length+ tapers_length+mmi_length)  # bottom left corner
-
+cr.move_to(taper_width_obtop_right, wg_input_length + tapers_length + mmi_length)  # top left corner
+cr.line_to(wg_bottom_left_corner, wg_input_length + tapers_length + tapers_length + mmi_length)  # top right corner
+cr.line_to(wg_bottom_left_corner + waveguide_width,
+           wg_input_length + tapers_length + tapers_length + mmi_length)  # bottom right corner
+cr.line_to(taper_width_obbottom_right, wg_input_length + tapers_length + mmi_length)  # bottom left corner
 # OUTPUT
 cr.rectangle(wg_top_left_corner, wg_output_start, waveguide_width, wg_output_length)
 cr.rectangle(wg_bottom_left_corner, wg_output_start, waveguide_width, wg_output_length)
@@ -390,12 +406,12 @@ for j in range(0, shape2):
             pass
             # print(data[i, j, 0])
 
-inputy_start = int(ja)
+inputy_start = int(ja + 50)
 inputy_stop = int(wg_input_length)
 input_meas_port_range = np.arange(inputy_start, inputy_stop, 1)
 
-measx_start = int(JE - JE * 0.13)
-measx_stop = int(JE - JE * 0.07)
+measx_start = int(wg_output_start)
+measx_stop = int(jb - 50)
 output_meas_port_range = np.arange(measx_start, measx_stop, 1)
 
 measy = int(IE * 0.3)
@@ -443,7 +459,7 @@ for n in range(1, nsteps + 1):
         # ky = k * np.sin(theta)
         # source = np.sin(kx + ky - w * T * dt)
         source = data_type(M.sin(2 * np.pi * freq[0] * dt * T), flag)  # plane wave
-        ez_inc[source_start:source_end, zero_range] = A * source  # (source_end - source_start)
+        ez_inc[source_start:source_end, 0:zero_range] = A * source  # (source_end - source_start)
         # ez_inc[source_start:source_end, 0:zero_range] = A * source  # (source_end - source_start)
 
     else:
@@ -465,7 +481,7 @@ for n in range(1, nsteps + 1):
 
     if T % frame_interval == 0:
         INTEGRATE.append(Pz)
-        YY = np.trapz(INTEGRATE, axis=0, dx=1.0) / window
+        YY = np.trapz(INTEGRATE, axis=0, dx=1.0) / window-1
         # print(YY.shape)
         # print(np.sum(YY,axis=1))
         if len(INTEGRATE) >= window:
@@ -496,9 +512,9 @@ for n in range(1, nsteps + 1):
         #                     textcoords="offset points", fontsize=9, color='white')
         # ay.set(xlim=(-ic, ic), ylim=(-jc, jc))
 
-        ims2 = ay.imshow(YY, cmap=cm.nipy_spectral, extent=[0, JE, 0, IE])
+        ims2 = ay.imshow(Pz, cmap=cm.nipy_spectral, extent=[0, JE, 0, IE])
         ims2.set_interpolation('bilinear')
-        ims4 = ay.scatter(x_points, y_points, c='grey', s=1, alpha=0.1)
+        ims4 = ay.scatter(x_points, y_points, c='grey', s=1, alpha=0.01)
         ims_oport_start = ay.scatter(np.array(probex_out)[:, 0], probey, c='red', s=5, alpha=0.05)
         ims_oport_stop = ay.scatter(np.array(probex_out)[:, g], probey, c='red', s=5, alpha=0.05)
         ims_iport_start = ay.scatter(np.array(probex_in)[:, 0], probey, c='g', s=5, alpha=0.05)
@@ -506,6 +522,8 @@ for n in range(1, nsteps + 1):
         # ims6, = az.plot(MaxField[mf_id], 'r')  # field distribiution
         ims_out, = az.plot(measure_port_out, 'r', alpha=0.85)
         ims_in, = az.plot(measure_port_in, '-.g', alpha=0.85)
+        ppoint = len(measure_port_out)
+
         # FFT CALCULATION
         # fft_out = fft.fftshift(fft.fft(torch.from_numpy(YY[:, measx])))
         # fft_out[1] = 0
@@ -554,7 +572,7 @@ az.legend(['out', 'in'], loc='best')
 
 
 e = time.time()
-print("Time brutto : " + str((e - s)) + "[s]")
+print("\nTime brutto : " + str((e - s)) + "[s]")
 print("Time netto SUM : " + str(nett_time_sum) + "[s]")
 file_name = "2d_fdtd_MMI_4.25um"
 # file_name = "./" + file_name + '.gif'
