@@ -185,7 +185,13 @@ arg = [data_type(0, flag)] * NFREQS
 # ddx = data_type((cc.c0 / min(freq) / (10 * cc.nSiO2)), flag)  # Cells Size
 # n=speed in vaccum/speed in medium
 
-n_index = 3.6  # cc.nGe # effective index from equation or fimmwave
+########################
+# neff rib 2um 3.85
+# neff rib 1um 3.65
+# neff ridge 2um 3.8
+# neff ridge 1um 3.6
+########################
+n_index = 3.65  # effective index from equation or fimmwave
 n_sigma = 0.  # cc.sigmaSiO2
 epsilon = data_type(n_index, flag)
 sigma = data_type(n_sigma, flag)
@@ -326,14 +332,22 @@ cr.paint()
 
 # 2x2 MMI 4.25um PARAMETERS
 ############################
-waveguide_width = correction * 20 / dx_factor
-mmi_width = correction * 63 / dx_factor
-mmi_length = correction * 700 / dx_factor
+m = 10
+Wwg = 2 # um
+Lwg = 15 # um
+Wmmi = 6.95 # um
+Lmmi = 95 # um
+w_off = 0.8 # um
+Wt = 2.7 # um
+Lt = 10 # um
+waveguide_width = correction * Wwg*m / dx_factor
+mmi_width = correction * Wmmi*m / dx_factor
+mmi_length = correction * Lmmi*m / dx_factor
 mmi_left_corner = IE / 2 - mmi_width / 2
-wg_offset = correction * 4 / dx_factor
-wg_input_length = correction * 200 / dx_factor
-tapers_length = correction * 50 / dx_factor
-taper_width_offset = correction * 5 / dx_factor
+wg_offset = correction * (w_off/2)*m / dx_factor
+wg_input_length = correction * Lwg*m / dx_factor
+tapers_length = correction * Lt*m / dx_factor
+taper_width_offset = correction * ((Wt/2)*m-Wwg*m/2) / dx_factor
 ############################
 wg_top_left_corner = mmi_left_corner + wg_offset
 wg_bottom_left_corner = mmi_left_corner + mmi_width - waveguide_width - wg_offset
@@ -409,8 +423,10 @@ for j in range(0, shape2):
 port_range = wave_meas
 port_offset_start = 0
 port_offset_stop = 0
-port_width_start = int(mmi_left_corner + mmi_width / 2 - mmi_width * 2)
-port_width_stop = int(mmi_left_corner + mmi_width / 2 + mmi_width * 2)
+# port_width_start = int(mmi_left_corner + mmi_width / 2 - mmi_width * 2)
+# port_width_stop = int(mmi_left_corner + mmi_width / 2 + mmi_width * 2)
+port_width_start = int(IE*0.45)
+port_width_stop = int(IE*0.55)
 
 probey = range(port_width_start, port_width_stop)
 input_meas_port_range = in_port_len(wg_input_length, port_range, port_offset_start, port_offset_stop)
@@ -437,7 +453,7 @@ grid = plt.GridSpec(20, 20, wspace=2, hspace=0.6)
 ay = fig.add_subplot(grid[:10, :])
 az = fig.add_subplot(grid[12:, :])
 # Cyclic Number of image snapping
-frame_interval = 64
+frame_interval = 32
 nsteps = 10000
 tstamp = 0
 stop_sim = 0
@@ -534,7 +550,7 @@ for n in range(1, nsteps + 1):
         # print(ppoint)
         if opoint >= 10.:
             stop_sim += 1
-            if stop_sim >= 15:  # int(IE / 100):
+            if stop_sim >= 8:  # int(IE / 100):
                 sys.stdout.write('\r')
                 sys.stdout.write("Pending...100 %")
                 sys.stdout.flush()
@@ -557,6 +573,7 @@ for n in range(1, nsteps + 1):
         ims_in, = az.plot(measure_port_in, '-.g', alpha=0.85)
         az.set_ylim([-0.1, 1.1])
 
+
         # FFT CALCULATION
         # fft_out = fft.fftshift(fft.fft(torch.from_numpy(YY[:, measx])))
         # fft_out[1] = 0
@@ -575,37 +592,39 @@ for n in range(1, nsteps + 1):
 
 # ax.set_xscale('log')
 # ax.grid(True)
-ay.set_xlabel("x [um]")
-ay.set_ylabel("y [um]")
+ay.set_xlabel("x [um]", fontsize=14)
+ay.set_ylabel("y [um]", fontsize=14)
 # ax.set_xlabel("Frequency [Hz]")
 # ax.set_ylabel("Power [W]")
-az.set_xlabel("y [um]")
-az.set_ylabel("Pfwd")
+az.set_xlabel("y [um]", fontsize=14)
+az.set_ylabel("Pfwd", fontsize=14)
 
 xlabels = [item.get_text() for item in ay.get_xticklabels()]
 ylabels = [item.get_text() for item in ay.get_yticklabels()]
 xlab = [float(x) * dx / correction for x in xlabels]
 ylab = [float(y) * dx / correction - (dx * IE / 2) / correction for y in ylabels]
-ay.set_xticklabels(xlab)
-ay.set_yticklabels(ylab)
+ay.set_xticklabels(xlab, fontsize=12)
+ay.set_yticklabels(ylab, fontsize=12)
 
 az.grid(True)
-az.locator_params(axis='x', nbins=6)
+bin = 4
+az.locator_params(axis='x', nbins=bin)
 zlabels = [item.get_text() for item in az.get_xticklabels()]
 zlab = [float(z) * dx / correction - (float(zlabels[-1]) * dx / 2) / correction for z in zlabels[1:]]
 
 zfin = [float(z)*dx for z in zlabels[1:-1]]
 
 
-zlab_bins = np.arange(start=-zfin[-1], stop=zlab[-1], step=2*zlab[-1]/6)
-# print(zlab_bins )
+zlab_bins = np.arange(start=-zfin[-1], stop=zlab[-1], step=2*zlab[-1]/bin)
+print(zlab_bins )
 # az.axis( xmin = zlab[0], xmax = zlab[-1])
 # az.tick_params(axis='x', which='major', labelsize=8)
 # az.set_xticks([zlab_bins[0],zlab_bins[1],zlab_bins[2],zlab_bins[3],zlab_bins[4]])
 # print(zlab_bins)
-az.set_xticklabels([' ',str(zlab_bins[0]), str(zlab_bins[1]), str(zlab_bins[2]), str(zlab_bins[3]), str(zlab_bins[4]), str(zlab_bins[5])])
+az.set_xticklabels(['',str(zlab_bins[0]), str(zlab_bins[1]), str(zlab_bins[2]), str(zlab_bins[3])], fontsize=12)
+az.tick_params( labelsize=12)
 # az.set_xticklabels(az.xaxis.get_majorticklabels())#, rotation=90)
-az.legend(['out', 'in'], loc='best')
+az.legend(['out', 'in'], loc='best', fontsize=12)
 
 # zlab = [float(z) * dx - float(zlabels[-1]) * dx / 2 if z.isnumeric() else -float(z[1:]) * dx - float(zlabels[-1]) * dx / 2 for z in zlabels[:]]
 
@@ -613,7 +632,7 @@ az.legend(['out', 'in'], loc='best')
 e = time.time()
 print("\nTime brutto : " + str((e - s)) + "[s]")
 print("Time netto SUM : " + str(nett_time_sum) + "[s]")
-file_name = "2d_fdtd_MMI_4.25um"
+file_name = "2d_fdtd_MMI_4.25um_rib_1um"
 # file_name = "./" + file_name + '.gif'
 file_name = "./" + file_name + '.gif'
 ani = animation.ArtistAnimation(fig, ims, interval=30, blit=True  , repeat=False)

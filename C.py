@@ -11,7 +11,7 @@ class C:
         #self.nSiO2 = 1.4780
         self.nSiO2 = 1.4780
         self.sigmaSiO2 = 1.0E-6
-        self.Wavelength = 4250  # [nm]
+        self.wavelength = 4.250e-6  # [nm]
         self.c0 = const.speed_of_light
 
     def gridRes(self, fmax, Nlambda=40):
