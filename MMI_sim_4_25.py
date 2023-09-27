@@ -57,6 +57,7 @@ dx = 0.05  # each grid step is dx [um]
 dx_factor = 10 * dx
 z = 10 / dx_factor
 
+
 @jit(nopython=True, parallel=True)
 def Ez_inc_CU(ez_inc, hx_inc):
     for j in prange(1, JE):
@@ -173,8 +174,8 @@ def Power_Calc(Pz, ez, hy, hx):
 cc = C()
 flag = 1
 data_type1 = np.float32
-IE = 1500  # y
-JE = 1500  # x
+IE = 1000  # y
+JE = 1000  # x
 npml = int(8 / dx_factor)
 NFREQS = 3
 freq = [data_type(0, 1)] * NFREQS
@@ -191,8 +192,8 @@ arg = [data_type(0, flag)] * NFREQS
 # neff ridge 2um 3.8
 # neff ridge 1um 3.6
 ########################
-n_index = 3.65  # effective index from equation or fimmwave
-n_sigma = 0.  # cc.sigmaSiO2
+n_index = 3.8  # effective index from equation or fimmwave
+n_sigma = 0.
 epsilon = data_type(n_index, flag)
 sigma = data_type(n_sigma, flag)
 epsilon_medium = data_type(1.003, flag)
@@ -208,7 +209,9 @@ ddx = data_type(cc.wavelength * dx, flag)  # Cells Size
 # dt = data_type((ddx / cc.c0) * M.sqrt(2), flag)  # Time step
 dt = ddx / (2 * cc.c0)  # Working moderate but ok
 correction = 0.5
-second_correction = 11.85
+second_correction = 11.35
+in_correction = second_correction
+out_correction = second_correction
 wave_meas = 4.25 / dx + 1 / dx_factor
 
 #   CFL stability condition- Lax Equivalence Theorem
@@ -333,21 +336,21 @@ cr.paint()
 # 2x2 MMI 4.25um PARAMETERS
 ############################
 m = 10
-Wwg = 2 # um
-Lwg = 15 # um
-Wmmi = 6.95 # um
-Lmmi = 95 # um
-w_off = 0.8 # um
-Wt = 2.7 # um
-Lt = 10 # um
-waveguide_width = correction * Wwg*m / dx_factor
-mmi_width = correction * Wmmi*m / dx_factor
-mmi_length = correction * Lmmi*m / dx_factor
+Wwg = 1.8  # um
+Lwg = 15  # um
+Wmmi = 7.1  # um
+Lmmi = 24.8  # um
+w_off = 1.6  # um
+Wt = 3.1  # um
+Lt = 5.  # um
+waveguide_width = correction * Wwg * m / dx_factor
+mmi_width = correction * Wmmi * m / dx_factor
+mmi_length = correction * Lmmi * m / dx_factor
 mmi_left_corner = IE / 2 - mmi_width / 2
-wg_offset = correction * (w_off/2)*m / dx_factor
-wg_input_length = correction * Lwg*m / dx_factor
-tapers_length = correction * Lt*m / dx_factor
-taper_width_offset = correction * ((Wt/2)*m-Wwg*m/2) / dx_factor
+wg_offset = correction * (w_off / 2) * m / dx_factor
+wg_input_length = correction * Lwg * m / dx_factor
+tapers_length = correction * Lt * m / dx_factor
+taper_width_offset = correction * ((Wt / 2) * m - Wwg * m / 2) / dx_factor
 ############################
 wg_top_left_corner = mmi_left_corner + wg_offset
 wg_bottom_left_corner = mmi_left_corner + mmi_width - waveguide_width - wg_offset
@@ -363,20 +366,22 @@ taper_width_ottop_right = wg_top_left_corner - taper_width_offset
 taper_width_otbottom_right = wg_top_left_corner + taper_width_offset + waveguide_width
 taper_width_obtop_right = wg_bottom_left_corner - taper_width_offset
 taper_width_obbottom_right = wg_bottom_left_corner + taper_width_offset + waveguide_width
+mod_mmi = mmi_width / 2 - waveguide_width / 2 - wg_offset  # 1x2 mod
+# mod_mmi = 0. # 2x2 mod
 # INPUT WAVEGUIDES
-cr.rectangle(wg_top_left_corner, 0, waveguide_width, wg_input_length)
-cr.rectangle(wg_bottom_left_corner, 0, waveguide_width, wg_input_length)
+cr.rectangle(wg_top_left_corner + mod_mmi, 0, waveguide_width, wg_input_length)
+cr.rectangle(wg_bottom_left_corner - mod_mmi, 0, waveguide_width, wg_input_length)
 # INPUT TAPERS
 # TOP TAPER
-cr.move_to(wg_top_left_corner, wg_input_length)  # top left corner
-cr.line_to(taper_width_ittop_right, wg_input_length + tapers_length)  # top right corner
-cr.line_to(taper_width_itbottom_right, wg_input_length + tapers_length)  # bottom right corner
-cr.line_to(wg_top_left_corner + waveguide_width, wg_input_length)  # bottom left corner
-# BOTTOM TAPER
-cr.move_to(wg_bottom_left_corner, wg_input_length)  # top left corner
-cr.line_to(taper_width_ibtop_right, wg_input_length + tapers_length)  # top right corner
-cr.line_to(taper_width_ibbottom_right, wg_input_length + tapers_length)  # bottom right corner
-cr.line_to(wg_bottom_left_corner + waveguide_width, wg_input_length)  # bottom left corner
+cr.move_to(wg_top_left_corner + mod_mmi, wg_input_length)  # top left corner
+cr.line_to(taper_width_ittop_right + mod_mmi, wg_input_length + tapers_length)  # top right corner
+cr.line_to(taper_width_itbottom_right + mod_mmi, wg_input_length + tapers_length)  # bottom right corner
+cr.line_to(wg_top_left_corner + waveguide_width + mod_mmi, wg_input_length)  # bottom left corner
+# BOTTOM TAPER 2x2
+# cr.move_to(wg_bottom_left_corner-mod_mmi, wg_input_length)  # top left corner
+# cr.line_to(taper_width_ibtop_righ-mod_mmit, wg_input_length + tapers_length)  # top right corner
+# cr.line_to(taper_width_ibbottom_right-mod_mmi, wg_input_length + tapers_length)  # bottom right corner
+# cr.line_to(wg_bottom_left_corner + waveguide_width-mod_mmi, wg_input_length)  # bottom left corner
 # MMI SECTION
 cr.rectangle(mmi_left_corner, wg_input_length + tapers_length, mmi_width, mmi_length)
 # OUTPUT TAPERS
@@ -425,12 +430,12 @@ port_offset_start = 0
 port_offset_stop = 0
 # port_width_start = int(mmi_left_corner + mmi_width / 2 - mmi_width * 2)
 # port_width_stop = int(mmi_left_corner + mmi_width / 2 + mmi_width * 2)
-port_width_start = int(IE*0.45)
-port_width_stop = int(IE*0.55)
+port_width_start = int(IE * 0.45)
+port_width_stop = int(IE * 0.55)
 
 probey = range(port_width_start, port_width_stop)
 input_meas_port_range = in_port_len(wg_input_length, port_range, port_offset_start, port_offset_stop)
-output_meas_port_range = out_port_len(wg_output_start, port_range)
+output_meas_port_range = out_port_len(wg_output_start, port_range*2)
 probex_out = [output_meas_port_range] * (len(probey))
 probex_in = [input_meas_port_range] * (len(probey))
 
@@ -439,8 +444,8 @@ MaxField = []
 
 fft_history_x = []
 fft_history_y = []
-source_start = int(wg_bottom_left_corner + 1)
-source_end = int(wg_bottom_left_corner + waveguide_width - 1)
+source_start = int(wg_bottom_left_corner + 1 - mod_mmi)
+source_end = int(wg_bottom_left_corner + waveguide_width - 1 - mod_mmi)
 window = source_end - source_start
 x = np.linspace(0, JE, JE)
 y = np.linspace(0, IE, IE)
@@ -454,7 +459,7 @@ ay = fig.add_subplot(grid[:10, :])
 az = fig.add_subplot(grid[12:, :])
 # Cyclic Number of image snapping
 frame_interval = 32
-nsteps = 10000
+nsteps = 15000
 tstamp = 0
 stop_sim = 0
 for n in range(1, nsteps + 1):
@@ -526,11 +531,11 @@ for n in range(1, nsteps + 1):
 
         measure_port_out /= len(np.array(probex_out)[0])
         measure_port_out /= window * correction
-        measure_port_out *= second_correction
+        measure_port_out *= in_correction
 
         measure_port_in /= len(np.array(probex_in)[0])
         measure_port_in /= window * correction
-        measure_port_in *= second_correction
+        measure_port_in *= out_correction
 
         # title = ay.annotate("Time :" + '{:<.4e}'.format(T * dt * 1 * 10 ** 15) + " fs", (1, 0.5),
         #                     xycoords=ay.get_window_extent, xytext=(-round(JE * 2), IE - 5),
@@ -573,7 +578,6 @@ for n in range(1, nsteps + 1):
         ims_in, = az.plot(measure_port_in, '-.g', alpha=0.85)
         az.set_ylim([-0.1, 1.1])
 
-
         # FFT CALCULATION
         # fft_out = fft.fftshift(fft.fft(torch.from_numpy(YY[:, measx])))
         # fft_out[1] = 0
@@ -607,22 +611,21 @@ ay.set_xticklabels(xlab, fontsize=12)
 ay.set_yticklabels(ylab, fontsize=12)
 
 az.grid(True)
-bin = 4
+bin = 5
 az.locator_params(axis='x', nbins=bin)
 zlabels = [item.get_text() for item in az.get_xticklabels()]
 zlab = [float(z) * dx / correction - (float(zlabels[-1]) * dx / 2) / correction for z in zlabels[1:]]
 
-zfin = [float(z)*dx for z in zlabels[1:-1]]
+zfin = [float(z) * dx for z in zlabels[1:-1]]
 
-
-zlab_bins = np.arange(start=-zfin[-1], stop=zlab[-1], step=2*zlab[-1]/bin)
-print(zlab_bins )
+zlab_bins = np.arange(start=-zfin[-1], stop=zlab[-1], step=2 * zlab[-1] / bin)
+print(zlab_bins)
 # az.axis( xmin = zlab[0], xmax = zlab[-1])
 # az.tick_params(axis='x', which='major', labelsize=8)
 # az.set_xticks([zlab_bins[0],zlab_bins[1],zlab_bins[2],zlab_bins[3],zlab_bins[4]])
 # print(zlab_bins)
-az.set_xticklabels(['',str(zlab_bins[0]), str(zlab_bins[1]), str(zlab_bins[2]), str(zlab_bins[3])], fontsize=12)
-az.tick_params( labelsize=12)
+az.set_xticklabels(['', str(zlab_bins[0]), str(zlab_bins[1]), str(zlab_bins[2]), str(zlab_bins[3]), str(zlab_bins[4])], fontsize=12)
+az.tick_params(labelsize=12)
 # az.set_xticklabels(az.xaxis.get_majorticklabels())#, rotation=90)
 az.legend(['out', 'in'], loc='best', fontsize=12)
 
@@ -632,13 +635,13 @@ az.legend(['out', 'in'], loc='best', fontsize=12)
 e = time.time()
 print("\nTime brutto : " + str((e - s)) + "[s]")
 print("Time netto SUM : " + str(nett_time_sum) + "[s]")
-file_name = "2d_fdtd_MMI_4.25um_rib_1um"
+file_name = "2d_fdtd_MMI_4.25um_ridge_2um_1x2"
 # file_name = "./" + file_name + '.gif'
 file_name = "./" + file_name + '.gif'
-ani = animation.ArtistAnimation(fig, ims, interval=30, blit=True  , repeat=False)
+ani = animation.ArtistAnimation(fig, ims, interval=30, blit=True, repeat=False)
 # ani.save(file_name, writer='pillow', fps=30, dpi=100)
 # ani.save(file_name + '.mp4', fps = 30, extra_args = ['-vcodec', 'libx264'])
 
-# ani.save(file_name, writer="imagemagick", fps=30)
+ani.save(file_name, writer="imagemagick", fps=30)
 print("Plotting...")
 plt.show()
