@@ -8,18 +8,16 @@ import numpy as np
 import torch
 import torch as tf
 import numba
-# import tensorflow as tf
-# from scipy.fftpack import fft, fftshift
+
 import torch.fft as fft
 from matplotlib import pyplot as plt, animation
 from numba import prange, jit
-# import matplotlib.style as mplstyle
+
 from C import C
 from numba import cuda
 from numba import vectorize
 
 # from vispy import plot as vp
-
 # mpl.use('Agg')
 jit(device=True)
 s = time.time()
@@ -28,7 +26,6 @@ np.seterr(divide='ignore', invalid='ignore')
 
 
 # plt.switch_backend('QtCairo')
-
 # mplstyle.use('fast')
 # mplstyle.use(['dark_background', 'ggplot', 'fast'])
 def data_type(data, flag):
@@ -37,12 +34,14 @@ def data_type(data, flag):
     else:
         return np.float64(data)
 
+
 @jit(nopython=True, parallel=True)
 def in_port_len(wg_input_length, port_range, port_offset_start, port_offset_stop):
     inputy_start = int(wg_input_length - port_range) + port_offset_start
     inputy_stop = int(wg_input_length) + port_offset_stop
     input_meas_port_range = np.arange(inputy_start, inputy_stop, 1)
     return input_meas_port_range
+
 
 @jit(nopython=True, parallel=True)
 def out_port_len(wg_output_start, port_range):
@@ -51,8 +50,9 @@ def out_port_len(wg_output_start, port_range):
     output_meas_port_range = np.arange(measx_start, measx_stop, 1)
     return output_meas_port_range
 
+
 @jit(nopython=True, parallel=True)
-def InitFields(medium_eps,medium_sigma,data_type1):
+def InitFields(medium_eps, medium_sigma, data_type1):
     dz = np.zeros((IE, JE), dtype=data_type1)
     iz = np.zeros((IE, JE), dtype=data_type1)
     ez = np.zeros((IE, JE), dtype=data_type1)
@@ -65,7 +65,8 @@ def InitFields(medium_eps,medium_sigma,data_type1):
     Pz = np.zeros((IE, JE), dtype=data_type1)
     ez_inc = np.zeros((IE, JE), dtype=data_type1)
     hx_inc = np.zeros((IE, JE), dtype=data_type1)
-    return dz,iz,ez,hx,hy,ihx,ihy,ga,gb,Pz,ez_inc,hx_inc
+    return dz, iz, ez, hx, hy, ihx, ihy, ga, gb, Pz, ez_inc, hx_inc
+
 
 @jit(nopython=True, parallel=True)
 def drawPML(npml):
@@ -131,7 +132,7 @@ def drawPML(npml):
     return gi2, gi3, fi1, fi2, fi3, gj2, gj3, fj1, fj2, fj3
 
 
-def initPainting(IE,JE):
+def initPainting(IE, JE):
     data = np.zeros((IE, JE, 4), dtype=np.uint8)
     # surface = cairo.ImageSurface.create_for_data(data, cairo.FORMAT_ARGB32, IE, JE)
     surface = cairo.ImageSurface.create_for_data(data, cairo.FORMAT_RGB24, IE, JE)
@@ -139,7 +140,7 @@ def initPainting(IE,JE):
     # cr.set_source_rgb(1.0, 0.0, 0.0)
     cr.set_source_rgb(1.0, 1.0, 1.0)
     cr.paint()
-    return cr,data
+    return cr, data
 
 
 def drawMMI(cr, m, Wwg, Lwg, Wmmi, Lmmi, w_off, Wt, Lt, mmi_ver):
@@ -181,10 +182,10 @@ def drawMMI(cr, m, Wwg, Lwg, Wmmi, Lmmi, w_off, Wt, Lt, mmi_ver):
     cr.line_to(taper_width_itbottom_right + mod_mmi, wg_input_length + tapers_length)  # bottom right corner
     cr.line_to(wg_top_left_corner + waveguide_width + mod_mmi, wg_input_length)  # bottom left corner
     # BOTTOM TAPER 2x2
-    cr.move_to(wg_bottom_left_corner-mod_mmi, wg_input_length)  # top left corner
-    cr.line_to(taper_width_ibtop_right-mod_mmi, wg_input_length + tapers_length)  # top right corner
-    cr.line_to(taper_width_ibbottom_right-mod_mmi, wg_input_length + tapers_length)  # bottom right corner
-    cr.line_to(wg_bottom_left_corner + waveguide_width-mod_mmi, wg_input_length)  # bottom left corner
+    cr.move_to(wg_bottom_left_corner - mod_mmi, wg_input_length)  # top left corner
+    cr.line_to(taper_width_ibtop_right - mod_mmi, wg_input_length + tapers_length)  # top right corner
+    cr.line_to(taper_width_ibbottom_right - mod_mmi, wg_input_length + tapers_length)  # bottom right corner
+    cr.line_to(wg_bottom_left_corner + waveguide_width - mod_mmi, wg_input_length)  # bottom left corner
     # MMI SECTION
     cr.rectangle(mmi_left_corner, wg_input_length + tapers_length, mmi_width, mmi_length)
     # OUTPUT TAPERS
@@ -207,7 +208,7 @@ def drawMMI(cr, m, Wwg, Lwg, Wmmi, Lmmi, w_off, Wt, Lt, mmi_ver):
     cr.set_source_rgb(1.0, 0.0, 0.0)
     cr.fill()
     ############################
-    return cr,waveguide_width, wg_input_length, wg_output_start, wg_bottom_left_corner, mod_mmi
+    return cr, waveguide_width, wg_input_length, wg_output_start, wg_bottom_left_corner, mod_mmi
 
 
 def drawIndex(data, ga, gb, epsilon, sigma, JE, dt, epsz, flag):
@@ -235,14 +236,15 @@ def drawIndex(data, ga, gb, epsilon, sigma, JE, dt, epsz, flag):
     return ga, gb, x_points, y_points
 
 
-def portDef(wave_meas,IE,wg_input_length,wg_output_start, port_offset_start, port_offset_stop,mod_mmi):
+def portDef(wave_meas, IE, wg_input_length, wg_output_start, port_offset_start, port_offset_stop, mod_mmi, portw_min,
+            portw_max):
     port_range = wave_meas
     port_offset_start = port_offset_start
     port_offset_stop = port_offset_stop
     # port_width_start = int(mmi_left_corner + mmi_width / 2 - mmi_width * 2)
     # port_width_stop = int(mmi_left_corner + mmi_width / 2 + mmi_width * 2)
-    port_width_start = int(IE * 0.45)
-    port_width_stop = int(IE * 0.55)
+    port_width_start = int(IE * portw_min)
+    port_width_stop = int(IE * portw_max)
     probey = range(port_width_start, port_width_stop)
     input_meas_port_range = in_port_len(wg_input_length, port_range, port_offset_start, port_offset_stop)
     output_meas_port_range = out_port_len(wg_output_start, port_range * 2)
@@ -251,11 +253,12 @@ def portDef(wave_meas,IE,wg_input_length,wg_output_start, port_offset_start, por
     source_start = int(wg_bottom_left_corner + 1 - mod_mmi)
     source_end = int(wg_bottom_left_corner + waveguide_width - 1 - mod_mmi)
     window = source_end - source_start
-    return window,probex_in,probex_out,probey,source_start,source_end
+    return window, probex_in, probex_out, probey, source_start, source_end
+
 
 # -------------------------------- KERNELS ---------------------------
 @jit(nopython=True, parallel=True)
-def Ez_inc_CU(ez_inc, hx_inc,z):
+def Ez_inc_CU(ez_inc, hx_inc, z):
     for j in prange(1, JE):
         for i in prange(0, IE):
             if j <= IE - z:
@@ -266,7 +269,7 @@ def Ez_inc_CU(ez_inc, hx_inc,z):
 
 
 @jit(nopython=True, parallel=True)
-def Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3,z):
+def Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3, z):
     for j in prange(1, JE):
         for i in prange(1, IE):
             if j <= IE - z:
@@ -297,7 +300,7 @@ def Dz_inc_val_CU(dz, hx_inc):
 
 
 @jit(nopython=True, parallel=True)
-def Ez_Dz_CU(ez, ga, gb, dz, iz,z):
+def Ez_Dz_CU(ez, ga, gb, dz, iz, z):
     for j in prange(0, JE):
         for i in prange(0, IE):
             if j <= IE - z:
@@ -310,7 +313,7 @@ def Ez_Dz_CU(ez, ga, gb, dz, iz,z):
 
 
 @jit(nopython=True, parallel=True)
-def Hx_inc_CU(hx_inc, ez_inc,z):
+def Hx_inc_CU(hx_inc, ez_inc, z):
     for j in prange(0, JE - 1):
         for i in prange(0, IE):
             if j <= IE - z:
@@ -321,7 +324,7 @@ def Hx_inc_CU(hx_inc, ez_inc,z):
 
 
 @jit(nopython=True, parallel=True)
-def Hx_CU(ez, hx, ihx, fj3, fj2, fi1,z):
+def Hx_CU(ez, hx, ihx, fj3, fj2, fi1, z):
     for j in prange(0, JE - 1):
         for i in prange(0, IE - 1):
             if j <= IE - z:
@@ -344,7 +347,7 @@ def Hx_inc_val_CU(hx, ez_inc):
 
 
 @jit(nopython=True, parallel=True)
-def Hy_CU(hy, ez, ihy, fi3, fi2, fi1,z):
+def Hy_CU(hy, ez, ihy, fi3, fi2, fi1, z):
     for j in prange(0, JE):
         for i in prange(0, IE - 1):
             if j <= IE - z:
@@ -370,8 +373,8 @@ cc = C()
 flag = 1
 data_type1 = np.float32
 ######################## GRID ########################
-IE = 2000  # y
-JE = 2000  # x
+IE = 1500 # y
+JE = 1500  # x
 ######################## GRID ########################
 dx = 0.05  # each grid step is dx [um]
 dx_factor = 10 * dx
@@ -389,7 +392,7 @@ arg = [data_type(0, flag)] * NFREQS
 # neff ridge 2um 3.8
 # neff ridge 1um 3.6
 ########################
-n_index = 3.85  # neff effective index from equation or fimmwave
+n_index = 3.8  # neff effective index from equation or fimmwave
 n_sigma = 0.
 epsilon = data_type(n_index, flag)
 sigma = data_type(n_sigma, flag)
@@ -403,22 +406,24 @@ dt = ddx / (2 * cc.c0)  # Working moderate but ok
 #   CFL stability condition- Lax Equivalence Theorem
 # dt = 1 / (vm * M.sqrt(1 / (ddx ** 2) + 1 / (ddx ** 2)))  # Time step
 correction = 0.5
-second_correction = 11.35
+second_correction = 11.6
 in_correction = second_correction
 out_correction = second_correction
 wave_meas = 4.25 / dx + 1 / dx_factor
 frame_interval = 32
-nsteps = 33
+last_frames = 4
+nsteps = 32000
+portw_min, portw_max = 0.475, 0.525
 ############### MMI PARAMETERS #################
 m = 10
-Wwg = 2.  # um
-Lwg = 15  # um
-Wmmi = 6.307  # um
-Lmmi = 70*2  # um
-w_off = 1.6  # um
-Wt = 2.8  # um
+Wwg = 1.8  # um
+Lwg = 40  # um
+Wmmi = 7.1  # um
+Lmmi = 24.8  # um
+w_off = 1.25  # um
+Wt = 3.1  # um
 Lt = 5.  # um
-mod_mmi = 2
+mod_mmi = 1 # num of inputs - 1 or 2
 ############### MMI PARAMETERS #################
 
 z_max = data_type(0, 1)
@@ -441,25 +446,21 @@ medium_sigma = sigma_medium * dt / epsz
 for n in range(0, NFREQS):
     arg[n] = 2 * M.pi * freq[n] * dt
 
-dz,iz,ez,hx,hy,ihx,ihy,ga,gb,Pz,ez_inc,hx_inc = InitFields(medium_eps,medium_sigma,data_type1)
-gi2,gi3,fi1,fi2,fi3,gj2,gj3,fj1,fj2,fj3 = drawPML(npml)
+dz, iz, ez, hx, hy, ihx, ihy, ga, gb, Pz, ez_inc, hx_inc = InitFields(medium_eps, medium_sigma, data_type1)
+gi2, gi3, fi1, fi2, fi3, gj2, gj3, fj1, fj2, fj3 = drawPML(npml)
 x_offset = 0
 y_offset = 0
 
+cr, data = initPainting(IE, JE)
+cr, waveguide_width, wg_input_length, wg_output_start, wg_bottom_left_corner, mod_mmi = drawMMI(cr, m, Wwg, Lwg, Wmmi,
+                                                                                                Lmmi,
+                                                                                                w_off, Wt, Lt, mod_mmi)
 
+ga, gb, x_points, y_points = drawIndex(data, ga, gb, epsilon, sigma, JE, dt, epsz, flag)
 
-cr,data = initPainting(IE,JE)
-cr,waveguide_width, wg_input_length, wg_output_start, wg_bottom_left_corner, mod_mmi = drawMMI(cr, m, Wwg, Lwg, Wmmi, Lmmi,
-                                                                                            w_off, Wt, Lt, mod_mmi)
-
-ga,gb,x_points,y_points = drawIndex(data,ga,gb,epsilon,sigma,JE,dt,epsz,flag)
-
-
-
-
-
-window,probex_in,probex_out,probey,source_start,source_end = portDef(wave_meas,IE,wg_input_length,wg_output_start, 0, 0,mod_mmi)
-
+window, probex_in, probex_out, probey, source_start, source_end = portDef(wave_meas, IE, wg_input_length,
+                                                                          wg_output_start, 0, 0, mod_mmi, portw_min,
+                                                                          portw_max)
 
 x = np.linspace(0, JE, JE)
 y = np.linspace(0, IE, IE)
@@ -483,11 +484,11 @@ for n in range(1, nsteps + 1):
     T += 1
     # MAIND FDTD LOOP
 
-    ez_inc = Ez_inc_CU(ez_inc, hx_inc,z)
+    ez_inc = Ez_inc_CU(ez_inc, hx_inc, z)
     ez_inc[0:zeroing_ezinc, :] = ez_inc[-zeroing_ezinc:, :] = ez_inc[:, 0:zeroing_ezinc] = ez_inc[:,
                                                                                            -zeroing_ezinc:] = 0.0
 
-    dz = Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3,z)
+    dz = Dz_CU(dz, hx, hy, gi2, gi3, gj2, gj3, z)
     if T <= int(nsteps):
         # w = 2 * np.pi * freq[0]
         # k = 2 * np.pi / wavelength
@@ -500,13 +501,12 @@ for n in range(1, nsteps + 1):
     else:
         pass
 
-
     dz = Dz_inc_val_CU(dz, hx_inc)
-    ez, iz = Ez_Dz_CU(ez, ga, gb, dz, iz,z)
-    hx_inc = Hx_inc_CU(hx_inc, ez_inc,z)
-    ihx, hx = Hx_CU(ez, hx, ihx, fj3, fj2, fi1,z)
+    ez, iz = Ez_Dz_CU(ez, ga, gb, dz, iz, z)
+    hx_inc = Hx_inc_CU(hx_inc, ez_inc, z)
+    ihx, hx = Hx_CU(ez, hx, ihx, fj3, fj2, fi1, z)
     hx = Hx_inc_val_CU(hx, ez_inc)
-    ihy, hy = Hy_CU(hy, ez, ihy, fi3, fi2, fi1,z)
+    ihy, hy = Hy_CU(hy, ez, ihy, fi3, fi2, fi1, z)
     hy = Hy_inc_CU(hy, ez_inc)
     Pz = Power_Calc(Pz, ez, hy, hx)
 
@@ -566,10 +566,11 @@ for n in range(1, nsteps + 1):
         #     pass
 
         opoint = np.sum(measure_port_out)
-        # print(ppoint)
-        if opoint >= 10.:
+        output_max = np.max(measure_port_out)
+        #print(output_max)
+        if output_max*2 >= 0.95:
             stop_sim += 1
-            if stop_sim >= 8:  # int(IE / 100):
+            if stop_sim >= last_frames:  # int(IE / 100):
                 sys.stdout.write('\r')
                 sys.stdout.write("Pending...100 %")
                 sys.stdout.flush()
@@ -579,7 +580,7 @@ for n in range(1, nsteps + 1):
 
         # cm.nipy_spectral
         ims2 = ay.imshow(Pz, cmap=cm.nipy_spectral, extent=[0, JE, 0, IE], aspect='auto')
-        ay.set_ylim([IE * 0.4, IE * 0.6])
+        ay.set_ylim([IE * portw_min, IE * portw_max])
         # ims2.set_interpolation('kaiser')
         ims4 = ay.scatter(x_points, y_points, c='grey', s=1, alpha=0.01)
         ims_oport_start = ay.scatter(np.array(probex_out)[:, 0], probey, c='red', s=5, alpha=0.05)
@@ -625,7 +626,7 @@ ay.set_xticklabels(xlab, fontsize=12)
 ay.set_yticklabels(ylab, fontsize=12)
 
 az.grid(True)
-bin = 5
+bin = 4
 az.locator_params(axis='x', nbins=bin)
 zlabels = [item.get_text() for item in az.get_xticklabels()]
 zlab = [float(z) * dx / correction - (float(zlabels[-1]) * dx / 2) / correction for z in zlabels[1:]]
@@ -638,7 +639,7 @@ print(zlab_bins)
 # az.tick_params(axis='x', which='major', labelsize=8)
 # az.set_xticks([zlab_bins[0],zlab_bins[1],zlab_bins[2],zlab_bins[3],zlab_bins[4]])
 # print(zlab_bins)
-az.set_xticklabels(['', str(zlab_bins[0]), str(zlab_bins[1]), str(zlab_bins[2]), str(zlab_bins[3]), str(zlab_bins[3])],
+az.set_xticklabels(['', str(zlab_bins[0]), str(zlab_bins[1]), str(zlab_bins[2]), str(zlab_bins[3])],
                    fontsize=12)
 az.tick_params(labelsize=12)
 # az.set_xticklabels(az.xaxis.get_majorticklabels())#, rotation=90)
@@ -650,13 +651,13 @@ az.legend(['out', 'in'], loc='best', fontsize=12)
 e = time.time()
 print("\nTime brutto : " + str((e - s)) + "[s]")
 print("Time netto SUM : " + str(nett_time_sum) + "[s]")
-file_name = "2d_fdtd_MMI_4.25um_ridge_2um_1x2"
+file_name = "2d_fdtd_MMI_4.25um_1x2_ridge_2um_closer"
 # file_name = "./" + file_name + '.gif'
 file_name = "./" + file_name + '.gif'
 ani = animation.ArtistAnimation(fig, ims, interval=30, blit=True, repeat=False)
 # ani.save(file_name, writer='pillow', fps=30, dpi=100)
 # ani.save(file_name + '.mp4', fps = 30, extra_args = ['-vcodec', 'libx264'])
 
-# ani.save(file_name, writer="imagemagick", fps=30)
+ani.save(file_name, writer="imagemagick", fps=30)
 print("Plotting...")
 plt.show()
